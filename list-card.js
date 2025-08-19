@@ -1,4 +1,4 @@
-console.log(`%clist-card\n%cVersion: ${'0.6.0'}`,'color: rebeccapurple; font-weight: bold;','');
+console.log(`%clist-card\n%cVersion: ${'0.1.0'}`,'color: rebeccapurple; font-weight: bold;','');
 
 class ListCard extends HTMLElement {
   constructor() {
@@ -391,17 +391,23 @@ class ListCardEditor extends HTMLElement {
     ['text','image','icon'].forEach((opt) => {
       const o = document.createElement('mwc-list-item');
       o.value = opt;
+      o.setAttribute('value', opt);
       o.textContent = opt;
       ySel.appendChild(o);
     });
     ySel.value = col.type || 'text';
     const applyType = (val) => {
       const cur = (Array.isArray(this._config?.columns) && this._config.columns[idx] && this._config.columns[idx].type) || 'text';
-      if (cur === val) return; // avoid redundant updates that cause label flicker
+      if (!val || cur === val) return; // avoid redundant/no-op updates
       this._updateArray('columns', idx, { type: val });
     };
     ySel.addEventListener('value-changed', (e) => applyType((e.detail && e.detail.value) || ySel.value));
     ySel.addEventListener('change', () => applyType(ySel.value));
+    ySel.addEventListener('selected', () => {
+      const li = ySel.selected;
+      const val = ySel.value || (li && (li.value || li.getAttribute('value')));
+      applyType(val);
+    });
     yWrap.appendChild(ySel);
 
     row1.appendChild(fInput);
@@ -492,7 +498,8 @@ class ListCardEditor extends HTMLElement {
 
   _updateArray(arrayKey, index, patch) {
     const arr = Array.isArray(this._config[arrayKey]) ? [...this._config[arrayKey]] : [];
-    arr[index] = { ...arr[index], ...patch };
+    const base = (arr[index] && typeof arr[index] === 'object') ? arr[index] : {};
+    arr[index] = { ...base, ...patch };
     this._update(arrayKey, arr);
   }
 }
