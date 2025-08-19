@@ -1,4 +1,4 @@
-console.log(`%clist-card\n%cVersion: ${'0.3.3'}`, 'color: rebeccapurple; font-weight: bold;', '');
+console.log(`%clist-card\n%cVersion: ${'0.3.4'}`, 'color: rebeccapurple; font-weight: bold;', '');
 
 class ListCard extends HTMLElement {
   constructor() {
@@ -18,11 +18,34 @@ class ListCard extends HTMLElement {
 
     const content = document.createElement('div');
     content.id = 'container';
+    content.classList.add('selectable');
+
+    // Prevent Lovelace long-press/swipe handlers from hijacking selection
+    const stop = (e) => e.stopPropagation();
+    content.addEventListener('mousedown', stop);
+    content.addEventListener('mouseup', stop);
+    content.addEventListener('touchstart', stop, { passive: true });
+    content.addEventListener('touchmove', stop, { passive: true });
+    content.addEventListener('touchend', stop, { passive: true });
 
     const style = document.createElement('style');
     style.textContent = `
-      :host, ha-card, table, thead, tbody, tr, th, td, a, img, div {
-        -webkit-user-select: text; user-select: text;
+      :host {
+        /* allow selection and touch text handles across platforms */
+        user-select: text !important;
+        -webkit-user-select: text !important;
+        -moz-user-select: text !important;
+        -ms-user-select: text !important;
+        -webkit-touch-callout: default;
+        touch-action: auto; /* don't force swipe/drag; let text-select happen */
+      }
+      .selectable, .selectable * {
+        user-select: text !important;
+        -webkit-user-select: text !important;
+      }
+      a, img {
+        -webkit-user-drag: none;
+        user-drag: none;
       }
       table {
         width: 100%;
@@ -31,7 +54,13 @@ class ListCard extends HTMLElement {
       thead th { text-align: left; }
       tbody tr:nth-child(odd)  { background-color: var(--paper-card-background-color); }
       tbody tr:nth-child(even) { background-color: var(--secondary-background-color); }
-      td a { color: var(--primary-text-color); text-decoration: none; font-weight: normal; }
+      td, th { cursor: text; }
+      td a {
+        color: var(--primary-text-color);
+        text-decoration: none;
+        font-weight: normal;
+        cursor: pointer; /* links still feel like links */
+      }
     `;
 
     if (cardConfig.title) card.header = cardConfig.title;
@@ -87,6 +116,7 @@ class ListCard extends HTMLElement {
       for (const col of columns) {
         const title = (col?.title ?? col?.field ?? '').toString();
         const cls = (col?.field ?? '').toString().trim().replace(/[^\w-]/g, '_');
+        // allow HTML in headers (matches original behavior)
         html += `<th class="col-${cls}" data-field="${col.field ?? ''}">${title}</th>`;
       }
     }
@@ -101,7 +131,7 @@ class ListCard extends HTMLElement {
 
       if (!columns) {
         for (const key of Object.keys(entry)) {
-          html += `<td>${this._renderRaw(entry[key])}</td>`;
+          html += `<td>${this._raw(entry[key])}</td>`;
         }
       } else {
         if (!columns.every(c => Object.prototype.hasOwnProperty.call(entry, c.field))) {
@@ -113,7 +143,7 @@ class ListCard extends HTMLElement {
           const cls = String(field || '').trim().replace(/[^\w-]/g, '_');
           const addLinkField = col.add_link;
           const linkHref = addLinkField ? (entry[addLinkField] ?? '') : '';
-          const openLink = linkHref ? `<a href="${linkHref}" target="_blank" rel="noopener noreferrer">` : '';
+          const openLink = linkHref ? `<a href="${linkHref}" draggable="false" target="_blank" rel="noopener noreferrer">` : '';
           const closeLink = linkHref ? '</a>' : '';
 
           html += `<td class="col-${cls} ${field || ''}" data-field="${field || ''}">`;
@@ -123,12 +153,13 @@ class ListCard extends HTMLElement {
             const imgH = Number.isFinite(col.height) ? col.height : 90;
             const val = entry[field];
             const url = (Array.isArray(val) && val[0]?.url) ? val[0].url : val;
-            html += `${openLink}<img src="${url}" width="${imgW}" height="${imgH}" />${closeLink}`;
+            html += `${openLink}<img src="${url}" draggable="false" width="${imgW}" height="${imgH}" />${closeLink}`;
           } else if (col.type === 'icon') {
             const icon = entry[field];
             html += `<ha-icon class="column-${field || ''}" icon="${icon}"></ha-icon>`;
           } else {
-            html += `${openLink}${this._renderRaw(entry[field])}${closeLink}`;
+            // preserve raw HTML in cells
+            html += `${openLink}${this._raw(entry[field])}${closeLink}`;
           }
 
           html += '</td>';
@@ -144,8 +175,7 @@ class ListCard extends HTMLElement {
   }
 
   getCardSize() { return 1; }
-
-  _renderRaw(v) { return v == null ? '' : (typeof v === 'string' ? v : JSON.stringify(v)); }
+  _raw(v) { return v == null ? '' : (typeof v === 'string' ? v : JSON.stringify(v)); }
 }
 
 customElements.define('list-card', ListCard);
@@ -159,20 +189,14 @@ window.customCards.push({
 });
 
 /* ------------------------------
-   Visual Editor (minimal, stable)
+   Visual Editor (minimal, blur-commit)
    ------------------------------ */
 
-ListCard.getConfigElement = function () {
-  return document.createElement('list-card-editor');
-};
-ListCard.getStubConfig = function () {
-  return { entity: '', title: '', row_limit: 5 };
-};
+ListCard.getConfigElement = function () { return document.createElement('list-card-editor'); };
+ListCard.getStubConfig = function () { return { entity: '', title: '', row_limit: 5 }; };
 
 function lc_fireConfigChanged(el, config) {
-  el.dispatchEvent(new CustomEvent('config-changed', {
-    detail: { config }, bubbles: true, composed: true,
-  }));
+  el.dispatchEvent(new CustomEvent('config-changed', { detail: { config }, bubbles: true, composed: true }));
 }
 
 class ListCardEditor extends HTMLElement {
@@ -190,18 +214,13 @@ class ListCardEditor extends HTMLElement {
     this._refreshEntityFallbackOptions();
   }
 
-  setConfig(config) {
-    this._config = JSON.parse(JSON.stringify(config || {}));
-    this._render();
-  }
-
+  setConfig(config) { this._config = JSON.parse(JSON.stringify(config || {})); this._render(); }
   get value() { return this._config; }
 
   _render() {
     const root = this.shadowRoot;
     if (!this._built) {
       root.innerHTML = '';
-
       const style = document.createElement('style');
       style.textContent = `
         :host { display: block; }
@@ -219,17 +238,15 @@ class ListCardEditor extends HTMLElement {
           color: var(--primary-text-color);
         }
       `;
-
       const form = document.createElement('div');
       form.className = 'form';
 
-      // Row 1: entity + title (commit on blur/change only)
+      // Row 1: entity + title
       const row1 = document.createElement('div');
       row1.className = 'row';
       const entityWrap = document.createElement('div');
       const titleWrap = document.createElement('div');
 
-      // Prefer HA entity picker; fallback to native <select>
       let entityInput;
       if (customElements.get('ha-entity-picker')) {
         entityInput = document.createElement('ha-entity-picker');
@@ -259,28 +276,24 @@ class ListCardEditor extends HTMLElement {
       titleWrap.append(titleInput);
       row1.append(entityWrap, titleWrap);
 
-      // Row 2: row_limit + feed_attribute (commit on blur/change)
+      // Row 2: row_limit + feed_attribute
       const row2 = document.createElement('div');
       row2.className = 'row';
-
       const limitWrap = document.createElement('div');
       const limitInput = this._mkNumberInput('row_limit (optional)', (this._config.row_limit != null ? this._config.row_limit : ''), (num) => {
-        if (num == null) delete this._config.row_limit;
-        else this._config.row_limit = num;
+        if (num == null) delete this._config.row_limit; else this._config.row_limit = num;
         lc_fireConfigChanged(this, this._config);
       });
       limitWrap.append(limitInput);
-
       const feedWrap = document.createElement('div');
       const feedInput = this._mkTextInput('feed_attribute (optional)', this._config.feed_attribute || '', (val) => {
         if (val) this._config.feed_attribute = val; else delete this._config.feed_attribute;
         lc_fireConfigChanged(this, this._config);
       });
       feedWrap.append(feedInput);
-
       row2.append(limitWrap, feedWrap);
 
-      // Columns editor (minimal)
+      // Columns editor
       const colsFs = document.createElement('fieldset');
       const legend = document.createElement('legend');
       legend.textContent = 'Columns';
@@ -310,7 +323,6 @@ class ListCardEditor extends HTMLElement {
       this._built = true;
     }
 
-    // sync entity value if present
     const entity = this.shadowRoot.querySelector('#entity');
     if (entity && !entity.value) entity.value = this._config.entity || '';
 
@@ -318,7 +330,6 @@ class ListCardEditor extends HTMLElement {
     this._refreshEntityFallbackOptions();
   }
 
-  // ALWAYS native inputs for stability; commit on blur/change only.
   _mkTextInput(label, value, onCommit) {
     const input = document.createElement('input');
     input.type = 'text';
@@ -356,7 +367,7 @@ class ListCardEditor extends HTMLElement {
     const scheduleCommit = (valueGetter) => {
       setTimeout(() => {
         const v = (valueGetter?.() || '').trim();
-        if (v === (cols[idx].type || '')) return; // no change → no rebuild
+        if (v === (cols[idx].type || '')) return;
         if (v) cols[idx].type = v; else delete cols[idx].type;
         lc_fireConfigChanged(this, this._config);
         const target = container?.isConnected ? container : this.shadowRoot?.querySelector('.cols');
@@ -375,7 +386,6 @@ class ListCardEditor extends HTMLElement {
         if (t === prev) item.selected = true;
         sel.append(item);
       });
-      // No 'selected' handler (fires during construction on some builds).
       sel.addEventListener('closed', () => scheduleCommit(() => sel.value));
       sel.addEventListener('change', () => scheduleCommit(() => sel.value));
       sel.addEventListener('blur', () => scheduleCommit(() => sel.value));
@@ -413,7 +423,6 @@ class ListCardEditor extends HTMLElement {
         cols[idx].field = val;
         lc_fireConfigChanged(this, this._config);
       });
-
       const titleInput = this._mkTextInput('title (header text or HTML)', col.title || '', (val) => {
         cols[idx].title = val;
         lc_fireConfigChanged(this, this._config);
@@ -472,7 +481,6 @@ class ListCardEditor extends HTMLElement {
     if (!sel) return;
     const current = this._config.entity || '';
     sel.innerHTML = '';
-
     const placeholder = document.createElement('option');
     placeholder.value = '';
     placeholder.textContent = 'Select entity…';
