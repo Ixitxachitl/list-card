@@ -1,584 +1,615 @@
-console.log(`%clist-card\n%cVersion: ${'0.1.0'}`,'color: rebeccapurple; font-weight: bold;','');
+console.log(`%clist-card\n%cVersion: ${'0.0.1'}`, 'color: rebeccapurple; font-weight: bold;', '');
 
 class ListCard extends HTMLElement {
-  constructor() {
-    super();
-    this.attachShadow({ mode: 'open' });
-  }
 
-  static getStubConfig() {
-    return {
-      type: 'custom:list-card',
-      title: 'List Card',
-      entity: 'sensor.example',
-      row_limit: 5,
-      columns: [
-        { field: 'title', title: 'Title', width: '40%' },
-        { field: 'status', title: 'Status', width: '120px' },
-        { field: 'url', title: 'Link', add_link: 'url' }
-      ]
-    };
-  }
-
-  static getConfigElement() {
-    return document.createElement('list-card-editor');
-  }
-
-  setConfig(config) {
-    if (!config || !config.entity) {
-      throw new Error('Please define an entity');
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' });
     }
 
-    const root = this.shadowRoot || this.attachShadow({ mode: 'open' });
-    while (root && root.lastChild) root.removeChild(root.lastChild);
-
-    const cardConfig = { ...config };
-    const columns = Array.isArray(cardConfig.columns)
-      ? cardConfig.columns
-      : (cardConfig.columns ? Object.values(cardConfig.columns) : undefined);
-
-    const card = document.createElement('ha-card');
-    const content = document.createElement('div');
-    const style = document.createElement('style');
-
-    style.textContent = `
-      :host, ha-card, table, thead, tbody, tr, th, td, a, img, span {
-        -webkit-user-select: text;
-        -moz-user-select: text;
-        -ms-user-select: text;
-        user-select: text;
+    setConfig(config) {
+      if (!config.entity) {
+        throw new Error('Please define an entity');
       }
-      table { width: 100%; padding: 0 16px 16px 16px; }
-      thead th { text-align: left; }
-      tbody tr:nth-child(odd) { background-color: var(--paper-card-background-color); }
-      tbody tr:nth-child(even) { background-color: var(--secondary-background-color); }
-      td a { color: var(--primary-text-color); text-decoration: none; font-weight: normal; }
-      table.has-widths { table-layout: fixed; }
-    `;
 
-    if (columns) {
-      for (const col of columns) {
-        if (col && col.style && col.field) {
-          const styles = Array.isArray(col.style) ? col.style : [col.style];
-          const cls = cssClass(col.field);
-          let block = `
-.${cls} {`;
-          for (const s of styles) {
-            if (!s) continue;
-            for (const prop in s) {
-              if (Object.prototype.hasOwnProperty.call(s, prop)) {
-                block += `
-  ${prop}: ${s[prop]};`;
+      const root = this.shadowRoot;
+      if (root.lastChild) root.removeChild(root.lastChild);
+
+      const cardConfig = Object.assign({}, config);
+      const columns = cardConfig.columns;
+      const card = document.createElement('ha-card');
+      const content = document.createElement('div');
+      const style = document.createElement('style');
+      style.textContent = `
+            ha-card {
+              /* sample css */
+            }
+            table {
+              width: 100%;
+              padding: 0 16px 16px 16px;
+            }
+            thead th {
+              text-align: left;
+            }
+            tbody tr:nth-child(odd) {
+              background-color: var(--paper-card-background-color);
+            }
+            tbody tr:nth-child(even) {
+              background-color: var(--secondary-background-color);
+            }
+            .button {
+              overflow: auto;
+              padding: 16px;
+            }
+            paper-button {
+              float: right;
+            }
+            td a {
+              color: var(--primary-text-color);
+              text-decoration-line: none;
+              font-weight: normal;
+            }
+          `;
+
+      // Go through columns and add CSS sytling to each column that is defined
+      if (columns) {
+        for (let column in columns) {
+          if (columns.hasOwnProperty(column) && columns[column].hasOwnProperty('style')) {
+            let styles = columns[column]['style'];
+
+            style.textContent += `
+              .${columns[column].field} {`
+
+            for (let index in styles) {
+              if (styles.hasOwnProperty(index)) {
+                for (let s in styles[index]) {
+                  style.textContent += `
+                  ${s}: ${styles[index][s]};`;
+                }
+              }
+            }
+
+            style.textContent += `}`;
+          }
+        }
+      }
+
+      content.id = "container";
+      cardConfig.title ? card.header = cardConfig.title : null;
+      card.appendChild(content);
+      card.appendChild(style);
+      root.appendChild(card);
+      this._config = cardConfig;
+    }
+
+    set hass(hass) {
+      const config = this._config;
+      const root = this.shadowRoot;
+      const card = root.lastChild;
+
+      if (hass.states[config.entity]) {
+        const feed = config.feed_attribute ? hass.states[config.entity].attributes[config.feed_attribute] : hass.states[config.entity].attributes;
+        const columns = config.columns;
+        this.style.display = 'block';
+        const rowLimit = config.row_limit ? config.row_limit : Object.keys(feed).length;
+        let rows = 0;
+
+        if (feed !== undefined && Object.keys(feed).length > 0) {
+          let card_content = '<table><thread><tr>';
+
+          if (!columns) {
+            card_content += `<tr>`;
+
+            for (let column in feed[0]) {
+              if (feed[0].hasOwnProperty(column)) {
+                card_content += `<th>${feed[0][column]}</th>`;
+              }
+            }
+          } else {
+            for (let column in columns) {
+              if (columns.hasOwnProperty(column)) {
+                card_content += `<th class=${columns[column].field}>${columns[column].title}</th>`;
               }
             }
           }
-          block += `
-}`;
-          style.textContent += block;
-        }
-      }
-    }
 
-    content.id = 'container';
-    if (cardConfig.title) {
-      const header = document.createElement('div');
-      header.className = 'card-header';
-      header.innerHTML = String(cardConfig.title); // allow HTML title
-      card.appendChild(header);
-    }
+          card_content += `</tr></thead><tbody>`;
 
-    card.appendChild(content);
-    card.appendChild(style);
-    this.shadowRoot.appendChild(card);
-    this._config = cardConfig;
-  }
+          for (let entry in feed) {
+            if (rows >= rowLimit) break;
 
-  set hass(hass) {
-    const config = this._config;
-    if (!config || !hass) return;
+            if (feed.hasOwnProperty(entry)) {
+              if (!columns) {
+                for (let field in feed[entry]) {
+                  if (feed[entry].hasOwnProperty(field)) {
+                    card_content += `<td>${feed[entry][field]}</td>`;
+                  }
+                }
+              } else {
+                let has_field = true;
 
-    const stateObj = hass.states[config.entity];
-    if (!stateObj) { this.style.display = 'none'; return; }
+                for (let column in columns) {
+                  if (!feed[entry].hasOwnProperty(columns[column].field)) {
+                    has_field = false;
+                    break;
+                  }
+                }
 
-    const feed = config.feed_attribute
-      ? stateObj.attributes[config.feed_attribute]
-      : stateObj.attributes;
+                if (!has_field) continue;
+                card_content += `<tr>`;
 
-    const columns = Array.isArray(config.columns)
-      ? config.columns
-      : (config.columns ? Object.values(config.columns) : undefined);
+                for (let column in columns) {
+                  if (columns.hasOwnProperty(column)) {
+                    card_content += `<td class=${columns[column].field}>`;
 
-    if (!feed || Object.keys(feed).length === 0) { this.style.display = 'none'; return; }
+                    if (columns[column].hasOwnProperty('add_link')) {
+                      card_content +=  `<a href="${feed[entry][columns[column].add_link]}" target='_blank'>`;
+                    }
 
-    this.style.display = 'block';
+                    if (columns[column].hasOwnProperty('type')) {
+                      if (columns[column].type === 'image') {
+                        if (columns[column].hasOwnProperty('width')) {
+                          var image_width = columns[column].width;
+                        } else {
+                          var image_width = 70;
+                        }
+                        if (columns[column].hasOwnProperty('height')) {
+                          var image_height = columns[column].height;
+                        } else {
+                          var image_height = 90;
+                        }
+                        if (feed[entry][columns[column].field][0].hasOwnProperty('url')) {
+                            var url = feed[entry][columns[column].field][0].url
+                        } else {
+                          var url = feed[entry][columns[column].field]
+                        }
+                          card_content += `<img id="image" src="${url}" width="${image_width}" height="${image_height}">`;
+                      } else if (columns[column].type === 'icon') {
+                        card_content += `<ha-icon class="column-${columns[column].field}" icon=${feed[entry][columns[column].field]}></ha-icon>`;
+                      }
+                      // else if (columns[column].type === 'button') {
+                      //   card_content += `<paper-button raised>${feed[entry][columns[column].button_text]}</paper-button>`;
+                      // }
+                    } else {
+                      let newText = feed[entry][columns[column].field];
 
-    const rowLimit = config.row_limit ? Number(config.row_limit) : Object.keys(feed).length;
+                      if (columns[column].hasOwnProperty('regex')) {
+                        newText = new RegExp(columns[column].regex, 'u').exec(feed[entry][columns[column].field]);
+                      } 
+                      if (columns[column].hasOwnProperty('prefix')) {
+                        newText = columns[column].prefix + newText;
+                      } 
+                      if (columns[column].hasOwnProperty('postfix')) {
+                        newText += columns[column].postfix;
+                      }
 
-    const anyWidths = !!(columns && columns.some((c) => normalizeWidth(c && c.width)));
+                      card_content += `${newText}`;
+                    }
 
-    let colgroup = '';
-    if (columns) {
-      colgroup += '<colgroup>';
-      for (const col of columns) {
-        const w = normalizeWidth(col && col.width);
-        colgroup += w ? `<col style="width:${w}">` : `<col>`;
-      }
-      colgroup += '</colgroup>';
-    }
+                    if (columns[column].hasOwnProperty('add_link')) {
+                      card_content +=  `</a>`;
+                    }
 
-    let html = `<table${anyWidths ? ' class="has-widths"' : ''}>${colgroup}<thead><tr>`;
+                    card_content += `</td>`;
+                  }
+                }
+              }
 
-    if (!columns) {
-      const firstKey = Object.keys(feed)[0];
-      const first = firstKey !== undefined ? feed[firstKey] : undefined;
-      if (first && typeof first === 'object') {
-        for (const key in first) {
-          if (Object.prototype.hasOwnProperty.call(first, key)) {
-            html += `<th>${escapeHtml(key)}</th>`;
+              card_content += `</tr>`;
+              ++rows;
+            }
           }
-        }
-      }
-    } else {
-      for (const col of columns) {
-        if (!col) continue;
-        const cls = cssClass(col.field);
-        const w = normalizeWidth(col.width);
-        html += `<th class="${cls}"${w ? ` style="width:${w}"` : ''}>${String(col.title ?? col.field)}</th>`; // allow HTML in headers
-      }
-    }
 
-    html += `</tr></thead><tbody>`;
-
-    let count = 0;
-    for (const entryKey in feed) {
-      if (count >= rowLimit) break;
-      if (!Object.prototype.hasOwnProperty.call(feed, entryKey)) continue;
-      const row = feed[entryKey];
-
-      html += `<tr>`;
-
-      if (!columns) {
-        if (row && typeof row === 'object') {
-          for (const field in row) {
-            if (!Object.prototype.hasOwnProperty.call(row, field)) continue;
-            html += `<td>${escapeHtml(String(row[field]))}</td>`;
-          }
+          root.lastChild.hass = hass;
+          card_content += `</tbody></table>`;
+          root.getElementById('container').innerHTML = card_content;
+        } else {
+          this.style.display = 'none';
         }
       } else {
-        let ok = true;
-        for (const col of columns) {
-          if (!row || !Object.prototype.hasOwnProperty.call(row, col.field)) { ok = false; break; }
-        }
-        if (!ok) { continue; }
-
-        for (const col of columns) {
-          const cls = cssClass(col.field);
-          const w = normalizeWidth(col.width);
-          html += `<td class="${cls}"${w ? ` style=\"width:${w}\"` : ''}>`;
-
-          const wrap = !!col.add_link;
-          if (wrap) {
-            const href = row[col.add_link];
-            html += `<a href="${encodeURI(String(href))}" target="_blank" rel="noreferrer noopener">`;
-          }
-
-          if (col.type === 'image') {
-            const imageWidth = Number(col.width) || 70;
-            const imageHeight = Number(col.height) || 90;
-            const data = row[col.field];
-            const url = Array.isArray(data) && data[0] && data[0].url ? data[0].url : data;
-            html += `<img src="${encodeURI(String(url))}" width="${imageWidth}" height="${imageHeight}" alt="">`;
-          } else if (col.type === 'icon') {
-            const icon = row[col.field];
-            html += `<ha-icon class="column-${cls}" icon="${escapeHtml(String(icon))}"></ha-icon>`;
-          } else {
-            let text = row[col.field];
-            if (col.regex) {
-              const match = new RegExp(col.regex, 'u').exec(String(row[col.field] ?? ''));
-              if (match) text = match[0];
-            }
-            if (col.prefix) text = `${col.prefix}${text ?? ''}`;
-            if (col.postfix) text = `${text ?? ''}${col.postfix}`;
-            html += String(text ?? '');
-          }
-
-          if (wrap) html += `</a>`;
-
-          html += `</td>`;
-        }
+        this.style.display = 'none';
       }
-
-      html += `</tr>`;
-      count++;
     }
 
-    html += `</tbody></table>`;
-
-    const container = this.shadowRoot && this.shadowRoot.getElementById('container');
-    if (container) container.innerHTML = html;
+    getCardSize() {
+      return 1;
+    }
   }
 
-  getCardSize() { return 1; }
+  customElements.define('list-card', ListCard);
+
+window.customCards = window.customCards || [];
+window.customCards.push({
+  type: "list-card",
+  name: "List Card",
+  preview: false,
+  description: "The List Card generate table with data from sensor that provides data as a list of attributes."
+});
+
+/* ------------------------------
+   Visual Editor (non-breaking)
+   ------------------------------ */
+
+/* Attach visual-editor hooks without modifying the existing class body */
+ListCard.getConfigElement = function () {
+  return document.createElement('list-card-editor');
+};
+ListCard.getStubConfig = function () {
+  return {
+    entity: '',
+    title: '',
+    row_limit: 5,
+    // Columns remain optional; editor helps you build them
+  };
+};
+
+/* Lightweight helper */
+function lc_fireConfigChanged(el, config) {
+  el.dispatchEvent(new CustomEvent('config-changed', {
+    detail: { config },
+    bubbles: true,
+    composed: true,
+  }));
 }
 
-customElements.define('list-card', ListCard);
-
-// ---------------------------
-// Visual Editor
-// ---------------------------
+/* Visual Editor Element */
 class ListCardEditor extends HTMLElement {
   constructor() {
     super();
-    this._initialized = false;
-    this._debounce = null;
-    this._didHassRender = false; // render editor once when hass first arrives
-  }
-
-  setConfig(config) {
-    const prevLen = (this._config && Array.isArray(this._config.columns)) ? this._config.columns.length : undefined;
-    const nextLen = (config && Array.isArray(config.columns)) ? config.columns.length : undefined;
-    this._config = { ...config };
-    // Normalize legacy object-shaped columns to array
-    if (this._config && this._config.columns && !Array.isArray(this._config.columns)) {
-      this._config = { ...this._config, columns: Object.values(this._config.columns) };
-    }
-    if (!this._initialized || prevLen !== nextLen) {
-      this._initialized = true;
-      this._render();
-    }
+    this.attachShadow({ mode: 'open' });
+    this._config = {};
+    this._built = false;
   }
 
   set hass(hass) {
     this._hass = hass;
-    if (this._entityPicker) {
-      this._entityPicker.hass = hass;
-      return; // no re-render needed once picker exists
-    }
-    if (!this._didHassRender && this.shadowRoot) {
-      this._didHassRender = true;
-      this._render(); // render exactly once so entity picker appears
-    }
+    // Provide hass to HA pickers if present
+    const picker = this.shadowRoot && this.shadowRoot.querySelector('#entity');
+    if (picker && 'hass' in picker) picker.hass = hass;
   }
 
-  _emitConfig() {
-    // Debounce to avoid HA recreating the editor on every keystroke
-    clearTimeout(this._debounce);
-    this._debounce = setTimeout(() => {
-      fireEvent(this, 'config-changed', { config: this._config });
-    }, 150);
+  setConfig(config) {
+    this._config = JSON.parse(JSON.stringify(config || {}));
+    this._render();
   }
 
   _render() {
-    if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
     const root = this.shadowRoot;
-    root.innerHTML = '';
+    if (!this._built) {
+      root.innerHTML = '';
+      const style = document.createElement('style');
+      style.textContent = `
+        :host { display: block; }
+        .form { padding: 12px; }
+        .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+        .row.single { grid-template-columns: 1fr; }
+        fieldset { border: 1px solid var(--divider-color, #e0e0e0); border-radius: 8px; padding: 12px; margin: 0 0 12px 0; }
+        legend { padding: 0 6px; font-weight: 600; color: var(--secondary-text-color); }
+        .cols { margin-top: 8px; }
+        .col-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+        button { cursor: pointer; }
+        .inline { display: flex; gap: 8px; align-items: center; }
+        .small { width: 96px; }
+        .hint { color: var(--secondary-text-color); font-size: 12px; }
+        input[type="text"], input[type="number"], select, textarea {
+          width: 100%; box-sizing: border-box; padding: 8px;
+          border: 1px solid var(--divider-color, #ccc); border-radius: 6px; background: var(--card-background-color);
+          color: var(--primary-text-color);
+        }
+        textarea { min-height: 64px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+      `;
+      const form = document.createElement('div');
+      form.className = 'form';
 
-    const style = document.createElement('style');
-    style.textContent = `
-      :host { display: block; }
-      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; align-items: start; }
-      .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; align-items: start; }
-      .columns { border: 1px solid var(--divider-color, #ddd); border-radius: 8px; padding: 12px; }
-      .col-item { border: 1px dashed var(--divider-color, #ccc); border-radius: 8px; padding: 8px; margin: 8px 0; }
-      .row > *, .row3 > * { min-width: 0; }
-      ha-textfield, ha-entity-picker, ha-select { width: 100%; }
-    `;
+      // Top-level fields
+      const row1 = document.createElement('div');
+      row1.className = 'row';
+      const entityWrap = document.createElement('div');
+      const titleWrap = document.createElement('div');
 
-    const wrap = document.createElement('div');
+      // Prefer HA entity picker if available
+      let entityInput;
+      if (customElements.get('ha-entity-picker')) {
+        entityInput = document.createElement('ha-entity-picker');
+        entityInput.label = 'Entity';
+        entityInput.id = 'entity';
+        entityInput.allowCustomEntity = true;
+        if (this._hass) entityInput.hass = this._hass;
+        entityInput.value = this._config.entity || '';
+        entityInput.addEventListener('value-changed', (e) => {
+          this._config.entity = e.detail.value || '';
+          lc_fireConfigChanged(this, this._config);
+        });
+      } else {
+        entityInput = document.createElement('input');
+        entityInput.type = 'text';
+        entityInput.placeholder = 'Entity (e.g., sensor.my_sensor)';
+        entityInput.value = this._config.entity || '';
+        entityInput.addEventListener('input', (e) => {
+          this._config.entity = e.target.value;
+          lc_fireConfigChanged(this, this._config);
+        });
+      }
+      entityWrap.append(entityInput);
 
-    // Top-level fields (pure HA components with labels)
-    const r1 = document.createElement('div');
-    r1.className = 'row';
+      const titleInput = document.createElement('input');
+      titleInput.type = 'text';
+      titleInput.placeholder = 'Title (optional)';
+      titleInput.value = this._config.title || '';
+      titleInput.addEventListener('input', (e) => {
+        this._config.title = e.target.value;
+        if (!this._config.title) delete this._config.title;
+        lc_fireConfigChanged(this, this._config);
+      });
+      titleWrap.append(titleInput);
+      row1.append(entityWrap, titleWrap);
 
-    const entityPicker = document.createElement('ha-entity-picker');
-    entityPicker.hass = this._hass;
-    entityPicker.value = this._config?.entity || '';
-    entityPicker.setAttribute('label','Entity');
-    entityPicker.addEventListener('value-changed', (e) => this._update('entity', (e.detail && e.detail.value) ?? e.target.value));
-    entityPicker.addEventListener('change', (e) => this._update('entity', e.target.value));
+      const row2 = document.createElement('div');
+      row2.className = 'row';
+      const feedWrap = document.createElement('div');
+      const limitWrap = document.createElement('div');
 
-    const titleInput = document.createElement('ha-textfield');
-    titleInput.label = 'Title (HTML supported)';
-    titleInput.value = this._config?.title || '';
-    titleInput.addEventListener('value-changed', (e) => this._update('title', (e.detail && e.detail.value) ?? e.target.value));
-    titleInput.addEventListener('input', (e) => this._update('title', e.target.value));
+      const feedInput = document.createElement('input');
+      feedInput.type = 'text';
+      feedInput.placeholder = 'feed_attribute (optional)';
+      feedInput.value = this._config.feed_attribute || '';
+      feedInput.addEventListener('input', (e) => {
+        const v = e.target.value.trim();
+        if (v) this._config.feed_attribute = v; else delete this._config.feed_attribute;
+        lc_fireConfigChanged(this, this._config);
+      });
+      feedWrap.append(feedInput);
 
-    r1.appendChild(entityPicker);
-    r1.appendChild(titleInput);
-    this._entityPicker = entityPicker;
+      const limitInput = document.createElement('input');
+      limitInput.type = 'number';
+      limitInput.min = '1';
+      limitInput.placeholder = 'row_limit (optional)';
+      limitInput.value = (this._config.row_limit != null ? this._config.row_limit : '');
+      limitInput.addEventListener('input', (e) => {
+        const val = e.target.value;
+        if (val === '' || isNaN(Number(val))) {
+          delete this._config.row_limit;
+        } else {
+          this._config.row_limit = Number(val);
+        }
+        lc_fireConfigChanged(this, this._config);
+      });
+      limitWrap.append(limitInput);
+      row2.append(feedWrap, limitWrap);
 
-    const r2 = document.createElement('div');
-    r2.className = 'row';
+      // Columns editor
+      const colsFs = document.createElement('fieldset');
+      const legend = document.createElement('legend');
+      legend.textContent = 'Columns';
+      colsFs.append(legend);
 
-    const feedInput = document.createElement('ha-textfield');
-    feedInput.label = 'Feed attribute (optional)';
-    feedInput.placeholder = 'e.g. items';
-    feedInput.value = this._config?.feed_attribute || '';
-    feedInput.addEventListener('value-changed', (e) => this._update('feed_attribute', (e.detail && e.detail.value) ?? e.target.value));
-    feedInput.addEventListener('input', (e) => this._update('feed_attribute', e.target.value));
+      const colsHead = document.createElement('div');
+      colsHead.className = 'col-head';
+      const hint = document.createElement('div');
+      hint.className = 'hint';
+      hint.textContent = 'Define how each column maps to a field and how it should render.';
+      const addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.textContent = 'Add column';
+      addBtn.addEventListener('click', () => {
+        if (!Array.isArray(this._config.columns)) this._config.columns = [];
+        this._config.columns.push({ field: '', title: '' });
+        lc_fireConfigChanged(this, this._config);
+        this._rebuildColumns(colsWrap); // refresh
+      });
+      colsHead.append(hint, addBtn);
+      colsFs.append(colsHead);
 
-    const limitInput = document.createElement('ha-textfield');
-    limitInput.label = 'Row limit (optional)';
-    limitInput.type = 'number';
-    limitInput.value = this._config?.row_limit ?? '';
-    limitInput.addEventListener('value-changed', (e) => this._update('row_limit', e.detail && e.detail.value ? Number(e.detail.value) : undefined));
-    limitInput.addEventListener('input', (e) => this._update('row_limit', e.target.value ? Number(e.target.value) : undefined));
+      const colsWrap = document.createElement('div');
+      colsWrap.className = 'cols';
+      colsFs.append(colsWrap);
 
-    r2.appendChild(feedInput);
-    r2.appendChild(limitInput);
+      // Optional raw JSON for styles per column (advanced)
+      const advFs = document.createElement('fieldset');
+      const advLegend = document.createElement('legend');
+      advLegend.textContent = 'Advanced (per-column style JSON)';
+      const advHint = document.createElement('div');
+      advHint.className = 'hint';
+      advHint.textContent = 'In each column you can set "style" as an array of CSS objects (e.g., [{"font-weight":"bold"}]).';
+      advFs.append(advLegend, advHint);
 
-    // Columns editor
-    const colsBox = document.createElement('div');
-    colsBox.className = 'columns';
-    const colsTitle = document.createElement('div');
-    colsTitle.innerHTML = `<strong>Columns</strong>`;
-    colsBox.appendChild(colsTitle);
+      form.append(row1, row2, colsFs, advFs);
+      root.append(style, form);
 
-    const cols = Array.isArray(this._config?.columns) ? this._config.columns : [];
+      this._built = true;
+    }
 
-    const list = document.createElement('div');
-    list.id = 'cols-list';
+    // Always (re)fill values
+    const entity = this.shadowRoot.querySelector('#entity');
+    if (entity && !entity.value) entity.value = this._config.entity || '';
 
-    
-
-    cols.forEach((col, idx) => list.appendChild(this._renderColumn(col, idx)));
-    colsBox.appendChild(list);
-
-    const addBtn = document.createElement('mwc-button');
-    addBtn.raised = true;
-    addBtn.label = 'Add column';
-    addBtn.addEventListener('click', () => {
-      const colsNow = Array.isArray(this._config?.columns) ? [...this._config.columns] : [];
-      colsNow.push({ field: '', title: '', type: 'text', width: '', prefix: '', postfix: '' });
-      this._update('columns', colsNow);
-      this._render();
-    });
-    colsBox.appendChild(addBtn);
-
-    wrap.appendChild(r1);
-    wrap.appendChild(r2);
-    wrap.appendChild(colsBox);
-
-    root.appendChild(style);
-    root.appendChild(wrap);
+    this._rebuildColumns(this.shadowRoot.querySelector('.cols'));
   }
 
-  _renderColumn(col, idx) {
-    const item = document.createElement('div');
-    item.className = 'col-item';
+  _rebuildColumns(container) {
+    if (!container) return;
+    container.innerHTML = '';
 
-    const row1 = document.createElement('div');
-    row1.className = 'row3';
+    const cols = Array.isArray(this._config.columns) ? this._config.columns : [];
 
-    // field
-    const fInput = document.createElement('ha-textfield');
-    fInput.label = 'Field';
-    fInput.value = col.field || '';
-    fInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { field: (e.detail && e.detail.value) ?? e.target.value }));
-    fInput.addEventListener('input', (e) => this._updateArray('columns', idx, { field: e.target.value }));
+    cols.forEach((col, idx) => {
+      const fs = document.createElement('fieldset');
+      const legend = document.createElement('legend');
+      legend.textContent = `Column ${idx + 1}`;
+      fs.append(legend);
 
-    // title
-    const tInput = document.createElement('ha-textfield');
-    tInput.label = 'Title';
-    tInput.value = col.title || '';
-    tInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { title: (e.detail && e.detail.value) ?? e.target.value }));
-    tInput.addEventListener('input', (e) => this._updateArray('columns', idx, { title: e.target.value }));
+      // field / title
+      const r1 = document.createElement('div');
+      r1.className = 'row';
+      const fieldInput = document.createElement('input');
+      fieldInput.type = 'text';
+      fieldInput.placeholder = 'field (attribute name)';
+      fieldInput.value = col.field || '';
+      fieldInput.addEventListener('input', (e) => {
+        cols[idx].field = e.target.value;
+        lc_fireConfigChanged(this, this._config);
+      });
 
-    // type
-    const yWrap = document.createElement('div');
-    const ySel = document.createElement('ha-select');
-    ySel.label = 'Type';
-    ['text','image','icon'].forEach((opt) => {
-      const o = document.createElement('mwc-list-item');
-      o.value = opt;
-      o.setAttribute('value', opt);
-      o.textContent = opt;
-      ySel.appendChild(o);
+      const titleInput = document.createElement('input');
+      titleInput.type = 'text';
+      titleInput.placeholder = 'title (column header)';
+      titleInput.value = col.title || '';
+      titleInput.addEventListener('input', (e) => {
+        cols[idx].title = e.target.value;
+        lc_fireConfigChanged(this, this._config);
+      });
+      r1.append(fieldInput, titleInput);
+
+      // type / add_link
+      const r2 = document.createElement('div');
+      r2.className = 'row';
+      const typeSelect = document.createElement('select');
+      const types = ['', 'image', 'icon'];
+      types.forEach((t) => {
+        const opt = document.createElement('option');
+        opt.value = t;
+        opt.textContent = t === '' ? 'type (optional)' : t;
+        if ((col.type || '') === t) opt.selected = true;
+        typeSelect.append(opt);
+      });
+      typeSelect.addEventListener('change', (e) => {
+        const v = e.target.value;
+        if (v) cols[idx].type = v; else delete cols[idx].type;
+        lc_fireConfigChanged(this, this._config);
+        // rebuild to show/hide image size fields
+        this._rebuildColumns(container);
+      });
+
+      const linkInput = document.createElement('input');
+      linkInput.type = 'text';
+      linkInput.placeholder = 'add_link (field providing URL, optional)';
+      linkInput.value = col.add_link || '';
+      linkInput.addEventListener('input', (e) => {
+        const v = e.target.value.trim();
+        if (v) cols[idx].add_link = v; else delete cols[idx].add_link;
+        lc_fireConfigChanged(this, this._config);
+      });
+      r2.append(typeSelect, linkInput);
+
+      // image width/height (only when type === 'image')
+      const r3 = document.createElement('div');
+      r3.className = 'row';
+      if ((col.type || '') === 'image') {
+        const w = document.createElement('input');
+        w.type = 'number';
+        w.placeholder = 'width (default 70)';
+        w.value = (col.width != null ? col.width : '');
+        w.addEventListener('input', (e) => {
+          const val = e.target.value;
+          if (val === '' || isNaN(Number(val))) {
+            delete cols[idx].width;
+          } else {
+            cols[idx].width = Number(val);
+          }
+          lc_fireConfigChanged(this, this._config);
+        });
+
+        const h = document.createElement('input');
+        h.type = 'number';
+        h.placeholder = 'height (default 90)';
+        h.value = (col.height != null ? col.height : '');
+        h.addEventListener('input', (e) => {
+          const val = e.target.value;
+          if (val === '' || isNaN(Number(val))) {
+            delete cols[idx].height;
+          } else {
+            cols[idx].height = Number(val);
+          }
+          lc_fireConfigChanged(this, this._config);
+        });
+        r3.append(w, h);
+      }
+
+      // prefix / postfix
+      const r4 = document.createElement('div');
+      r4.className = 'row';
+      const pref = document.createElement('input');
+      pref.type = 'text';
+      pref.placeholder = 'prefix (optional)';
+      pref.value = col.prefix || '';
+      pref.addEventListener('input', (e) => {
+        const v = e.target.value;
+        if (v) cols[idx].prefix = v; else delete cols[idx].prefix;
+        lc_fireConfigChanged(this, this._config);
+      });
+
+      const post = document.createElement('input');
+      post.type = 'text';
+      post.placeholder = 'postfix (optional)';
+      post.value = col.postfix || '';
+      post.addEventListener('input', (e) => {
+        const v = e.target.value;
+        if (v) cols[idx].postfix = v; else delete cols[idx].postfix;
+        lc_fireConfigChanged(this, this._config);
+      });
+      r4.append(pref, post);
+
+      // regex
+      const r5 = document.createElement('div');
+      r5.className = 'row single';
+      const regex = document.createElement('input');
+      regex.type = 'text';
+      regex.placeholder = 'regex (optional, used with new RegExp(..., "u"))';
+      regex.value = col.regex || '';
+      regex.addEventListener('input', (e) => {
+        const v = e.target.value;
+        if (v) cols[idx].regex = v; else delete cols[idx].regex;
+        lc_fireConfigChanged(this, this._config);
+      });
+      r5.append(regex);
+
+      // style (advanced JSON array of objects)
+      const r6 = document.createElement('div');
+      r6.className = 'row single';
+      const styleArea = document.createElement('textarea');
+      styleArea.placeholder = 'style (JSON array of CSS objects, e.g. [{ "font-weight": "bold" }])';
+      styleArea.value = Array.isArray(col.style) ? JSON.stringify(col.style, null, 2) : (col.style || '');
+      styleArea.addEventListener('input', (e) => {
+        const txt = e.target.value.trim();
+        if (!txt) {
+          delete cols[idx].style;
+          lc_fireConfigChanged(this, this._config);
+          return;
+        }
+        try {
+          const parsed = JSON.parse(txt);
+          cols[idx].style = parsed;
+          styleArea.setCustomValidity('');
+          lc_fireConfigChanged(this, this._config);
+        } catch (err) {
+          // show validation error but do not overwrite config until valid JSON
+          styleArea.setCustomValidity('Invalid JSON');
+          styleArea.reportValidity();
+        }
+      });
+      r6.append(styleArea);
+
+      // row actions
+      const actions = document.createElement('div');
+      actions.className = 'inline';
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.textContent = 'Remove column';
+      removeBtn.addEventListener('click', () => {
+        cols.splice(idx, 1);
+        lc_fireConfigChanged(this, this._config);
+        this._rebuildColumns(container);
+      });
+      actions.append(removeBtn);
+
+      fs.append(r1, r2, r3, r4, r5, r6, actions);
+      container.append(fs);
     });
-    ySel.value = col.type || 'text';
-    const applyType = (val) => {
-      const cur = (Array.isArray(this._config?.columns) && this._config.columns[idx] && this._config.columns[idx].type) || 'text';
-      if (!val || cur === val) return; // avoid redundant/no-op updates
-      this._updateArray('columns', idx, { type: val });
-    };
-    ySel.addEventListener('value-changed', (e) => applyType((e.detail && e.detail.value) || ySel.value));
-    ySel.addEventListener('change', () => applyType(ySel.value));
-    ySel.addEventListener('selected', () => {
-      const li = ySel.selected;
-      const val = ySel.value || (li && (li.value || li.getAttribute('value')));
-      applyType(val);
-    });
-    yWrap.appendChild(ySel);
-
-    row1.appendChild(fInput);
-    row1.appendChild(tInput);
-    row1.appendChild(yWrap);
-
-    const row2 = document.createElement('div');
-    row2.className = 'row3';
-
-    // width
-    const wInput = document.createElement('ha-textfield');
-    wInput.label = 'Width';
-    wInput.placeholder = 'e.g. 120px or 25%';
-    wInput.value = col.width || '';
-    wInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { width: (e.detail && e.detail.value) ?? e.target.value }));
-    wInput.addEventListener('input', (e) => this._updateArray('columns', idx, { width: e.target.value }));
-
-    // link
-    const lInput = document.createElement('ha-textfield');
-    lInput.label = 'Link (field name for href)';
-    lInput.placeholder = 'e.g. url';
-    lInput.value = col.add_link || '';
-    lInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { add_link: (e.detail && e.detail.value) ?? e.target.value }));
-    lInput.addEventListener('input', (e) => this._updateArray('columns', idx, { add_link: e.target.value }));
-
-    // regex
-    const rInput = document.createElement('ha-textfield');
-    rInput.label = 'Regex (optional)';
-    rInput.placeholder = '\d+';
-    rInput.value = col.regex || '';
-    rInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { regex: (e.detail && e.detail.value) ?? e.target.value }));
-    rInput.addEventListener('input', (e) => this._updateArray('columns', idx, { regex: e.target.value }));
-
-    row2.appendChild(wInput);
-    row2.appendChild(lInput);
-    row2.appendChild(rInput);
-
-    const row3 = document.createElement('div');
-    row3.className = 'row3';
-
-    // prefix
-    const pInput = document.createElement('ha-textfield');
-    pInput.label = 'Prefix';
-    pInput.value = col.prefix || '';
-    pInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { prefix: (e.detail && e.detail.value) ?? e.target.value }));
-    pInput.addEventListener('input', (e) => this._updateArray('columns', idx, { prefix: e.target.value }));
-
-    // postfix
-    const sInput = document.createElement('ha-textfield');
-    sInput.label = 'Postfix';
-    sInput.value = col.postfix || '';
-    sInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { postfix: (e.detail && e.detail.value) ?? e.target.value }));
-    sInput.addEventListener('input', (e) => this._updateArray('columns', idx, { postfix: e.target.value }));
-
-    // image height (only relevant for image type)
-    const hInput = document.createElement('ha-textfield');
-    hInput.label = 'Image height (px)';
-    hInput.type = 'number';
-    hInput.value = col.height || '';
-    hInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { height: e.detail && e.detail.value ? Number(e.detail.value) : undefined }));
-    hInput.addEventListener('input', (e) => this._updateArray('columns', idx, { height: e.target.value ? Number(e.target.value) : undefined }));
-
-    row3.appendChild(pInput);
-    row3.appendChild(sInput);
-    row3.appendChild(hInput);
-
-    const controls = document.createElement('div');
-    const del = document.createElement('mwc-button');
-    del.label = 'Delete column';
-    del.addEventListener('click', () => {
-      const next = (Array.isArray(this._config.columns) ? this._config.columns : []).filter((_, i) => i !== idx);
-      this._update('columns', next);
-      this._render();
-    });
-    controls.appendChild(del);
-
-    item.appendChild(row1);
-    item.appendChild(row2);
-    item.appendChild(row3);
-    item.appendChild(controls);
-    return item;
   }
 
-  _update(key, value) {
-    this._config = { ...this._config, [key]: value };
-    this._emitConfig();
-  }
-
-  _updateArray(arrayKey, index, patch) {
-    const arr = Array.isArray(this._config[arrayKey]) ? [...this._config[arrayKey]] : [];
-    const base = (arr[index] && typeof arr[index] === 'object') ? arr[index] : {};
-    arr[index] = { ...base, ...patch };
-    this._update(arrayKey, arr);
+  get value() {
+    return this._config;
   }
 }
 
 customElements.define('list-card-editor', ListCardEditor);
-
-// ---------------------------
-// Helpers
-// ---------------------------
-function normalizeWidth(val) {
-  if (val === undefined || val === null) return '';
-  if (typeof val === 'number') return `${val}px`;
-  const s = String(val).trim();
-  if (!s) return '';
-  if (/^\d+$/.test(s)) return `${s}px`;
-  if (/^\d+(?:\.\d+)?(px|%)$/.test(s)) return s;
-  return '';
-}
-
-function cssClass(field) {
-  return String(field || '').replace(/[^a-zA-Z0-9_-]/g, '-');
-}
-
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
-// Card Description (for More Info → Custom Cards list)
-function sanitizeHTML(input) {
-  const template = document.createElement('template');
-  template.innerHTML = String(input ?? '');
-  const allowedTags = new Set(['A','B','I','STRONG','EM','SPAN','BR','UL','OL','LI','DIV','P','H1','H2','H3','H4','H5','H6','HR','FONT']);
-  const allowedAttrs = {
-    'A': new Set(['href','target','rel','title']),
-    'SPAN': new Set(['class','title']),
-    'FONT': new Set(['color'])
-  };
-  const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT, null);
-  const toRemove = [];
-  while (walker.nextNode()) {
-    const el = walker.currentNode;
-    if (!allowedTags.has(el.tagName)) { toRemove.push(el); continue; }
-    [...el.attributes].forEach(attr => {
-      const tag = el.tagName;
-      const ok = allowedAttrs[tag] && allowedAttrs[tag].has(attr.name.toLowerCase());
-      if (!ok) el.removeAttribute(attr.name);
-    });
-    if (el.tagName === 'A') {
-      const href = el.getAttribute('href') || '';
-      const safe = href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:') || href.startsWith('tel:');
-      if (!safe) el.removeAttribute('href');
-      el.setAttribute('rel','noreferrer noopener');
-      if (!el.getAttribute('target')) el.setAttribute('target','_blank');
-    }
-  }
-  toRemove.forEach(n => n.replaceWith(document.createTextNode(n.textContent || '')));
-  return template.innerHTML;
-}
-
-function fireEvent(node, type, detail, options) {
-  const ev = new CustomEvent(type, {
-    bubbles: true,
-    composed: true,
-    cancelable: false,
-    ...(options || {}),
-    detail,
-  });
-  node.dispatchEvent(ev);
-}
-
-window.customCards = window.customCards || [];
-window.customCards.push({
-  type: 'list-card',
-  name: 'List Card',
-  preview: false,
-  description: 'Table from a sensor that provides list attributes. Now with visual editor, selectable text, and per-column width.'
-});
