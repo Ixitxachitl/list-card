@@ -1,7 +1,7 @@
-console.log(`%clist-card\n%cVersion: ${'0.3.8'}`, 'color: rebeccapurple; font-weight: bold;', '');
+console.log(`%clist-card\n%cVersion: ${'0.3.9'}`, 'color: rebeccapurple; font-weight: bold;', '');
 
 /* =========================
-   List Card (runtime)
+   List Card (runtime) — unchanged from 0.3.8
    ========================= */
 class ListCard extends HTMLElement {
   constructor() { super(); this.attachShadow({ mode: 'open' }); this._config = {}; }
@@ -14,12 +14,11 @@ class ListCard extends HTMLElement {
     const cardConfig = { ...config };
     const card = document.createElement('ha-card');
 
-    // Title: plain header or HTML block
     if (cardConfig.title) {
       if (/<[a-z][\s\S]*>/i.test(cardConfig.title)) {
         const t = document.createElement('div');
         t.className = 'title-html';
-        t.innerHTML = cardConfig.title; // intentional to allow HTML
+        t.innerHTML = cardConfig.title;
         card.appendChild(t);
       } else {
         card.header = cardConfig.title;
@@ -30,7 +29,6 @@ class ListCard extends HTMLElement {
     content.id = 'container';
     content.classList.add('selectable');
 
-    // Make text selection behave on dashboards
     const stop = (e) => e.stopPropagation();
     content.addEventListener('mousedown', stop);
     content.addEventListener('mouseup', stop);
@@ -44,7 +42,7 @@ class ListCard extends HTMLElement {
       .selectable, .selectable * { user-select: text !important; -webkit-user-select: text !important; }
       a, img { -webkit-user-drag: none; user-drag: none; }
       .title-html { padding: 16px 16px 0 16px; }
-      table { width: 100%; padding: 0 16px 16px 16px; } /* original spacing */
+      table { width: 100%; padding: 0 16px 16px 16px; }
       thead th { text-align: left; }
       tbody tr:nth-child(odd)  { background-color: var(--paper-card-background-color); }
       tbody tr:nth-child(even) { background-color: var(--secondary-background-color); }
@@ -95,7 +93,7 @@ class ListCard extends HTMLElement {
       for (const col of columns) {
         const title = (col?.title ?? col?.field ?? '').toString();
         const cls = (col?.field ?? '').toString().trim().replace(/[^\w-]/g, '_');
-        html += `<th class="col-${cls}" data-field="${col.field ?? ''}">${title}</th>`; // HTML allowed
+        html += `<th class="col-${cls}" data-field="${col.field ?? ''}">${title}</th>`;
       }
     }
     html += '</tr></thead><tbody>';
@@ -131,7 +129,7 @@ class ListCard extends HTMLElement {
             const icon = entry[field];
             html += `<ha-icon class="column-${field || ''}" icon="${icon}"></ha-icon>`;
           } else {
-            html += `${openLink}${this._raw(entry[field])}${closeLink}`; // HTML allowed
+            html += `${openLink}${this._raw(entry[field])}${closeLink}`;
           }
 
           html += '</td>';
@@ -149,7 +147,6 @@ class ListCard extends HTMLElement {
   getCardSize() { return 1; }
   _raw(v) { return v == null ? '' : (typeof v === 'string' ? v : JSON.stringify(v)); }
 }
-
 customElements.define('list-card', ListCard);
 
 window.customCards = window.customCards || [];
@@ -174,15 +171,8 @@ function lc_fireConfigChanged(el, config) {
 class ListCardEditor extends HTMLElement {
   constructor() { super(); this.attachShadow({ mode: 'open' }); this._config = {}; this._built = false; }
 
-  connectedCallback() {
-    // In case HA registers components after attachment, try wiring again
-    this._ensureEntityPickerReady();
-  }
-
-  set hass(hass) {
-    this._hass = hass;
-    this._ensureEntityPickerReady();
-  }
+  connectedCallback() { this._ensureEntityPickerReady(); }
+  set hass(hass) { this._hass = hass; this._ensureEntityPickerReady(); }
 
   setConfig(config) { this._config = JSON.parse(JSON.stringify(config || {})); this._render(); }
   get value() { return this._config; }
@@ -190,23 +180,12 @@ class ListCardEditor extends HTMLElement {
   async _ensureEntityPickerReady() {
     const picker = this.shadowRoot?.getElementById('entity');
     if (!picker) return;
-
-    // Wait until the custom element is defined/upgraded
     try { await customElements.whenDefined('ha-entity-picker'); } catch(_) {}
-
-    // If detached during await, bail
     if (!picker.isConnected) return;
-
-    // Wire hass and ensure value appears
     try { if (this._hass) picker.hass = this._hass; } catch(_) {}
-    // Re-apply value to force render if needed (without firing events)
     const current = this._config?.entity || '';
-    if (picker.value !== current) {
-      picker.value = current;
-    } else {
-      // Nudge Lit-based components to render if they missed first paint
-      requestAnimationFrame(() => { try { picker.requestUpdate?.(); } catch(_) {} });
-    }
+    if (picker.value !== current) picker.value = current;
+    else requestAnimationFrame(() => { try { picker.requestUpdate?.(); } catch(_) {} });
   }
 
   _render() {
@@ -217,20 +196,38 @@ class ListCardEditor extends HTMLElement {
       const style = document.createElement('style');
       style.textContent = `
         :host { display: block; }
-        .form { padding: 12px; display: grid; grid-template-columns: 1fr; gap: 12px; }
-        fieldset { border: 1px solid var(--divider-color, #e0e0e0); border-radius: 8px; padding: 12px; margin: 0; }
+        .form { padding: 12px; display: grid; grid-template-columns: 1fr; gap: 16px; }
+
+        /* Column editor blocks: comfy padding & spacing */
+        fieldset {
+          border: 1px solid var(--divider-color, #e0e0e0);
+          border-radius: 10px;
+          padding: 16px 16px 12px 16px;  /* increased */
+          margin: 0;
+          background: var(--card-background-color);
+        }
         legend { padding: 0 6px; font-weight: 600; color: var(--secondary-text-color); }
-        ha-textfield, ha-select, ha-entity-picker { width: 100%; }
-        .row { display: grid; grid-template-columns: 1fr; gap: 8px; }
-        .cols { display: grid; grid-auto-rows: min-content; gap: 12px; }
-        .actions { display: flex; gap: 8px; }
+        .row { display: grid; grid-template-columns: 1fr; gap: 10px; }
+        .cols { display: grid; grid-auto-rows: min-content; gap: 16px; } /* more gap between columns */
+        .actions { display: flex; gap: 8px; padding-top: 6px; }
         button { cursor: pointer; }
+
+        /* HA inputs full width */
+        ha-textfield, ha-select, ha-entity-picker { width: 100%; }
+
+        /* Type dropdown text spacing (inside ha-select) via MWC CSS vars */
+        ha-select.lc-type {
+          --mdc-list-vertical-padding: 8px;             /* vertical padding in menu */
+          --mdc-menu-item-height: 40px;                 /* ensure a comfy row height */
+          --mdc-typography-body1-font-size: 14px;       /* menu item text size */
+          --mdc-typography-subtitle1-font-size: 14px;   /* closed text size */
+        }
       `;
 
       const form = document.createElement('div');
       form.className = 'form';
 
-      // Entity (single row)
+      // Entity row
       const entityRow = document.createElement('div');
       entityRow.className = 'row';
       const entityInput = document.createElement('ha-entity-picker');
@@ -247,7 +244,7 @@ class ListCardEditor extends HTMLElement {
       });
       entityRow.append(entityInput);
 
-      // Title (single row)
+      // Title row
       const titleRow = document.createElement('div');
       titleRow.className = 'row';
       titleRow.append(this._mkTextfield('Title (text or HTML)', this._config.title || '', (val) => {
@@ -258,7 +255,7 @@ class ListCardEditor extends HTMLElement {
         lc_fireConfigChanged(this, this._config);
       }));
 
-      // Row limit (single row)
+      // Row limit row
       const limitRow = document.createElement('div');
       limitRow.className = 'row';
       limitRow.append(this._mkNumberfield('row_limit (optional)', (this._config.row_limit != null ? this._config.row_limit : ''), (num) => {
@@ -268,7 +265,7 @@ class ListCardEditor extends HTMLElement {
         lc_fireConfigChanged(this, this._config);
       }));
 
-      // feed_attribute (single row)
+      // feed_attribute row
       const feedRow = document.createElement('div');
       feedRow.className = 'row';
       feedRow.append(this._mkTextfield('feed_attribute (optional)', this._config.feed_attribute || '', (val) => {
@@ -279,7 +276,7 @@ class ListCardEditor extends HTMLElement {
         lc_fireConfigChanged(this, this._config);
       }));
 
-      // Columns editor (each control on its own row)
+      // Columns editor
       const colsFs = document.createElement('fieldset');
       const legend = document.createElement('legend');
       legend.textContent = 'Columns';
@@ -307,12 +304,9 @@ class ListCardEditor extends HTMLElement {
       root.append(style, form);
 
       this._built = true;
-
-      // Ensure the entity picker upgrades & renders
       this._ensureEntityPickerReady();
     }
 
-    // keep picker synced if value was set programmatically
     const picker = this.shadowRoot.getElementById('entity');
     if (picker && picker.value !== (this._config.entity || '')) picker.value = this._config.entity || '';
 
@@ -386,6 +380,7 @@ class ListCardEditor extends HTMLElement {
 
     if (customElements.get('ha-select') && customElements.get('mwc-list-item')) {
       const sel = document.createElement('ha-select');
+      sel.classList.add('lc-type');  // ← style target for spacing vars
       sel.label = 'type (optional)';
       sel.value = prev;
       sel._open = false;
@@ -431,7 +426,6 @@ class ListCardEditor extends HTMLElement {
       legend.textContent = `Column ${idx + 1}`;
       fs.append(legend);
 
-      // field (row)
       const rField = document.createElement('div');
       rField.className = 'row';
       rField.append(this._mkTextfield('field (attribute name)', col.field || '', (val) => {
@@ -442,7 +436,6 @@ class ListCardEditor extends HTMLElement {
         lc_fireConfigChanged(this, this._config);
       }));
 
-      // title (row)
       const rTitle = document.createElement('div');
       rTitle.className = 'row';
       rTitle.append(this._mkTextfield('title (header text or HTML)', col.title || '', (val) => {
@@ -453,12 +446,10 @@ class ListCardEditor extends HTMLElement {
         lc_fireConfigChanged(this, this._config);
       }));
 
-      // type (row)
       const rType = document.createElement('div');
       rType.className = 'row';
       rType.append(this._mkTypeSelect(col, idx, container));
 
-      // add_link (row)
       const rLink = document.createElement('div');
       rLink.className = 'row';
       rLink.append(this._mkTextfield('add_link (URL field, optional)', col.add_link || '', (val) => {
@@ -469,7 +460,6 @@ class ListCardEditor extends HTMLElement {
         lc_fireConfigChanged(this, this._config);
       }));
 
-      // image width / height (rows) if needed
       const rW = document.createElement('div');
       const rH = document.createElement('div');
       rW.className = rH.className = 'row';
@@ -488,7 +478,6 @@ class ListCardEditor extends HTMLElement {
         }));
       }
 
-      // column width (row)
       const rColWidth = document.createElement('div');
       rColWidth.className = 'row';
       rColWidth.append(this._mkTextfield('col_width (e.g., 120px or 25%)', col.col_width || '', (val) => {
@@ -499,7 +488,6 @@ class ListCardEditor extends HTMLElement {
         lc_fireConfigChanged(this, this._config);
       }));
 
-      // actions (row)
       const actions = document.createElement('div');
       actions.className = 'actions';
       const removeBtn = document.createElement('button');
@@ -519,5 +507,4 @@ class ListCardEditor extends HTMLElement {
     });
   }
 }
-
 customElements.define('list-card-editor', ListCardEditor);
