@@ -1,4 +1,4 @@
-console.log(`%clist-card\n%cVersion: ${'0.3.12'}`, 'color: rebeccapurple; font-weight: bold;', '');
+console.log(`%clist-card\n%cVersion: ${'0.3.13'}`, 'color: rebeccapurple; font-weight: bold;', '');
 
 /* ===== List Card runtime (unchanged from your working build) ===== */
 class ListCard extends HTMLElement {
@@ -165,65 +165,24 @@ class ListCardEditor extends HTMLElement {
       `;
       const form = document.createElement('div'); form.className = 'form';
 
-      // Entity
+      // Entity (single row) — use ha-form + entity selector
       const entityRow = document.createElement('div');
       entityRow.className = 'row';
       
-      if (!customElements.get('ha-entity-picker')) {
-        // Fallback shown only during first-moment cold loads
-        const sel = document.createElement('select');
-        sel.id = 'entity-fallback';
-        const none = document.createElement('option');
-        none.value = ''; none.textContent = 'Select entity…';
-        sel.append(none);
-        if (this._hass?.states) {
-          Object.keys(this._hass.states).sort().forEach(eid => {
-            const opt = document.createElement('option');
-            opt.value = eid;
-            opt.textContent = this._hass.states[eid]?.attributes?.friendly_name || eid;
-            if ((this._config.entity || '') === eid) opt.selected = true;
-            sel.append(opt);
-          });
-        }
-        sel.addEventListener('change', (e) => {
-          const next = e.target.value || '';
-          if ((this._config.entity || '') === next) return;
-          this._config.entity = next;
-          lc_fireConfigChanged(this, this._config);
-        });
-        entityRow.append(sel);
+      const entityForm = document.createElement('ha-form');
+      entityForm.schema = [{ name: 'entity', selector: { entity: {} } }];
+      entityForm.data = { entity: this._config.entity || '' };
+      entityForm.computeLabel = (s) => s.name === 'entity' ? 'Entity' : '';
       
-        // When the real picker registers, swap it in-place
-        customElements.whenDefined('ha-entity-picker').then(() => {
-          const picker = document.createElement('ha-entity-picker');
-          picker.id = 'entity';
-          picker.label = 'Entity';
-          picker.allowCustomEntity = true;
-          try { if (this._hass) picker.hass = this._hass; } catch(_) {}
-          picker.value = this._config.entity || '';
-          picker.addEventListener('value-changed', (ev) => {
-            const next = ev.detail?.value || '';
-            if ((this._config.entity || '') === next) return;
-            this._config.entity = next;
-            lc_fireConfigChanged(this, this._config);
-          });
-          sel.replaceWith(picker);
-        });
-      } else {
-        const picker = document.createElement('ha-entity-picker');
-        picker.id = 'entity';
-        picker.label = 'Entity';
-        picker.allowCustomEntity = true;
-        try { if (this._hass) picker.hass = this._hass; } catch(_) {}
-        picker.value = this._config.entity || '';
-        picker.addEventListener('value-changed', (e) => {
-          const next = e.detail?.value || '';
-          if ((this._config.entity || '') === next) return;
-          this._config.entity = next;
-          lc_fireConfigChanged(this, this._config);
-        });
-        entityRow.append(picker);
-      }
+      entityForm.addEventListener('value-changed', (e) => {
+        const next = e.detail?.value?.entity || '';
+        if ((this._config.entity || '') === next) return;
+        this._config.entity = next;
+        lc_fireConfigChanged(this, this._config);
+      });
+      
+      entityRow.append(entityForm);
+      form.append(entityRow);
       
       // Title
       const titleRow = document.createElement('div'); titleRow.className = 'row';
