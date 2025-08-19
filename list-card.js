@@ -1,4 +1,4 @@
-console.log(`%clist-card\n%cVersion: ${'0.3.10'}`, 'color: rebeccapurple; font-weight: bold;', '');
+console.log(`%clist-card\n%cVersion: ${'0.3.11'}`, 'color: rebeccapurple; font-weight: bold;', '');
 
 /* ===== List Card runtime (unchanged from your working build) ===== */
 class ListCard extends HTMLElement {
@@ -112,6 +112,7 @@ class ListCardEditor extends HTMLElement {
   get value() { return this._config; }
 
   async _ensureEntityPickerReady() {
+    try { await window.loadCardHelpers?.(); } catch (_) {}
     const picker = this.shadowRoot?.getElementById('entity'); if (!picker) return;
     try { await customElements.whenDefined('ha-entity-picker'); } catch(_) {}
     if (!picker.isConnected) return;
