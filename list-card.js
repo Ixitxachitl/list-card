@@ -259,6 +259,7 @@ class ListCardEditor extends HTMLElement {
   constructor() {
     super();
     this._initialized = false;
+    this._debounce = null;
   }
 
   setConfig(config) {
@@ -276,6 +277,14 @@ class ListCardEditor extends HTMLElement {
     if (this._entityPicker) this._entityPicker.hass = hass;
   }
 
+  _emitConfig() {
+    // Debounce to avoid HA recreating the editor on every keystroke
+    clearTimeout(this._debounce);
+    this._debounce = setTimeout(() => {
+      fireEvent(this, 'config-changed', { config: this._config });
+    }, 150);
+  }
+
   _render() {
     if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
     const root = this.shadowRoot;
@@ -288,60 +297,53 @@ class ListCardEditor extends HTMLElement {
       .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
       .columns { border: 1px solid var(--divider-color, #ddd); border-radius: 8px; padding: 12px; }
       .col-item { border: 1px dashed var(--divider-color, #ccc); border-radius: 8px; padding: 8px; margin: 8px 0; }
-      label { font-size: 0.9em; color: var(--secondary-text-color); display:block; margin-bottom: 4px; }
     `;
 
     const wrap = document.createElement('div');
 
-    // Top-level fields (HA components)
+    // Top-level fields (pure HA components with labels)
     const r1 = document.createElement('div');
     r1.className = 'row';
 
-    const entityWrap = document.createElement('div');
-    entityWrap.innerHTML = `<label>Entity</label>`;
     const entityPicker = document.createElement('ha-entity-picker');
     entityPicker.hass = this._hass;
     entityPicker.value = this._config?.entity || '';
+    entityPicker.setAttribute('label','Entity');
     entityPicker.addEventListener('value-changed', (e) => this._update('entity', e.detail.value));
-    entityWrap.appendChild(entityPicker);
-    this._entityPicker = entityPicker;
 
-    const titleWrap = document.createElement('div');
-    titleWrap.innerHTML = `<label>Title (HTML supported)</label>`;
     const titleInput = document.createElement('ha-textfield');
+    titleInput.label = 'Title (HTML supported)';
     titleInput.value = this._config?.title || '';
     titleInput.addEventListener('value-changed', (e) => this._update('title', e.detail.value));
-    titleWrap.appendChild(titleInput);
 
-    r1.appendChild(entityWrap);
-    r1.appendChild(titleWrap);
+    r1.appendChild(entityPicker);
+    r1.appendChild(titleInput);
+    this._entityPicker = entityPicker;
 
     const r2 = document.createElement('div');
     r2.className = 'row';
 
-    const feedWrap = document.createElement('div');
-    feedWrap.innerHTML = `<label>Feed attribute (optional)</label>`;
     const feedInput = document.createElement('ha-textfield');
+    feedInput.label = 'Feed attribute (optional)';
     feedInput.placeholder = 'e.g. items';
     feedInput.value = this._config?.feed_attribute || '';
     feedInput.addEventListener('value-changed', (e) => this._update('feed_attribute', e.detail.value));
-    feedWrap.appendChild(feedInput);
 
-    const limitWrap = document.createElement('div');
-    limitWrap.innerHTML = `<label>Row limit (optional)</label>`;
     const limitInput = document.createElement('ha-textfield');
+    limitInput.label = 'Row limit (optional)';
     limitInput.type = 'number';
     limitInput.value = this._config?.row_limit ?? '';
     limitInput.addEventListener('value-changed', (e) => this._update('row_limit', e.detail.value ? Number(e.detail.value) : undefined));
-    limitWrap.appendChild(limitInput);
 
-    r2.appendChild(feedWrap);
-    r2.appendChild(limitWrap);
+    r2.appendChild(feedInput);
+    r2.appendChild(limitInput);
 
     // Columns editor
     const colsBox = document.createElement('div');
     colsBox.className = 'columns';
-    colsBox.innerHTML = `<strong>Columns</strong>`;
+    const colsTitle = document.createElement('div');
+    colsTitle.innerHTML = `<strong>Columns</strong>`;
+    colsBox.appendChild(colsTitle);
 
     const cols = Array.isArray(this._config?.columns) ? this._config.columns : [];
 
@@ -378,25 +380,21 @@ class ListCardEditor extends HTMLElement {
     row1.className = 'row3';
 
     // field
-    const fWrap = document.createElement('div');
-    fWrap.innerHTML = `<label>Field</label>`;
     const fInput = document.createElement('ha-textfield');
+    fInput.label = 'Field';
     fInput.value = col.field || '';
     fInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { field: e.detail.value }));
-    fWrap.appendChild(fInput);
 
     // title
-    const tWrap = document.createElement('div');
-    tWrap.innerHTML = `<label>Title</label>`;
     const tInput = document.createElement('ha-textfield');
+    tInput.label = 'Title';
     tInput.value = col.title || '';
     tInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { title: e.detail.value }));
-    tWrap.appendChild(tInput);
 
     // type
     const yWrap = document.createElement('div');
-    yWrap.innerHTML = `<label>Type</label>`;
     const ySel = document.createElement('ha-select');
+    ySel.label = 'Type';
     ['text', 'image', 'icon'].forEach((opt) => {
       const o = document.createElement('mwc-list-item');
       o.value = opt; o.textContent = opt; if ((col.type || 'text') === opt) o.selected = true; ySel.appendChild(o);
@@ -404,75 +402,63 @@ class ListCardEditor extends HTMLElement {
     ySel.addEventListener('selected', () => this._updateArray('columns', idx, { type: ySel.value }));
     yWrap.appendChild(ySel);
 
-    row1.appendChild(fWrap);
-    row1.appendChild(tWrap);
-    row1.appendChild(ySel);
+    row1.appendChild(fInput);
+    row1.appendChild(tInput);
+    row1.appendChild(yWrap);
 
     const row2 = document.createElement('div');
     row2.className = 'row3';
 
     // width
-    const wWrap = document.createElement('div');
-    wWrap.innerHTML = `<label>Width</label>`;
     const wInput = document.createElement('ha-textfield');
+    wInput.label = 'Width';
     wInput.placeholder = 'e.g. 120px or 25%';
     wInput.value = col.width || '';
     wInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { width: e.detail.value }));
-    wWrap.appendChild(wInput);
 
     // link
-    const lWrap = document.createElement('div');
-    lWrap.innerHTML = `<label>Link (field name for href)</label>`;
     const lInput = document.createElement('ha-textfield');
+    lInput.label = 'Link (field name for href)';
     lInput.placeholder = 'e.g. url';
     lInput.value = col.add_link || '';
     lInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { add_link: e.detail.value }));
-    lWrap.appendChild(lInput);
 
     // regex
-    const rWrap = document.createElement('div');
-    rWrap.innerHTML = `<label>Regex (optional)</label>`;
     const rInput = document.createElement('ha-textfield');
+    rInput.label = 'Regex (optional)';
     rInput.placeholder = '\d+';
     rInput.value = col.regex || '';
     rInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { regex: e.detail.value }));
-    rWrap.appendChild(rInput);
 
-    row2.appendChild(wWrap);
-    row2.appendChild(lWrap);
-    row2.appendChild(rWrap);
+    row2.appendChild(wInput);
+    row2.appendChild(lInput);
+    row2.appendChild(rInput);
 
     const row3 = document.createElement('div');
     row3.className = 'row3';
 
     // prefix
-    const pWrap = document.createElement('div');
-    pWrap.innerHTML = `<label>Prefix</label>`;
     const pInput = document.createElement('ha-textfield');
+    pInput.label = 'Prefix';
     pInput.value = col.prefix || '';
     pInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { prefix: e.detail.value }));
-    pWrap.appendChild(pInput);
 
     // postfix
-    const sWrap = document.createElement('div');
-    sWrap.innerHTML = `<label>Postfix</label>`;
     const sInput = document.createElement('ha-textfield');
+    sInput.label = 'Postfix';
     sInput.value = col.postfix || '';
     sInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { postfix: e.detail.value }));
-    sWrap.appendChild(sInput);
 
     // image height (only relevant for image type)
-    const hWrap = document.createElement('div');
-    hWrap.innerHTML = `<label>Image height (px)</label>`;
     const hInput = document.createElement('ha-textfield');
+    hInput.label = 'Image height (px)';
     hInput.type = 'number';
     hInput.value = col.height || '';
     hInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { height: e.detail.value ? Number(e.detail.value) : undefined }));
-    hWrap.appendChild(hInput);
 
-    row3.appendChild(pWrap);
-    row3.appendChild(sWrap);
-    row3.appendChild(hWrap);
+    row3.appendChild(pInput);
+    row3.appendChild(sInput);
+    row3.appendChild(hInput);
 
     const controls = document.createElement('div');
     const del = document.createElement('mwc-button');
@@ -493,7 +479,7 @@ class ListCardEditor extends HTMLElement {
 
   _update(key, value) {
     this._config = { ...this._config, [key]: value };
-    fireEvent(this, 'config-changed', { config: this._config });
+    this._emitConfig();
   }
 
   _updateArray(arrayKey, index, patch) {
