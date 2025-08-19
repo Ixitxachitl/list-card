@@ -1,4 +1,4 @@
-console.log(`%clist-card\n%cVersion: ${'0.3.1'}`, 'color: rebeccapurple; font-weight: bold;', '');
+console.log(`%clist-card\n%cVersion: ${'0.3.2'}`, 'color: rebeccapurple; font-weight: bold;', '');
 
 class ListCard extends HTMLElement {
   constructor() {
@@ -16,35 +16,27 @@ class ListCard extends HTMLElement {
     const cardConfig = { ...config };
     const card = document.createElement('ha-card');
 
-    // content wrapper (ensures original padding behavior consistently)
-    const pad = document.createElement('div');
-    pad.className = 'content-pad';
-
     const content = document.createElement('div');
     content.id = 'container';
-    pad.appendChild(content);
 
     const style = document.createElement('style');
     style.textContent = `
-      :host, ha-card, .content-pad, table, th, td, a, img, div { -webkit-user-select: text; user-select: text; }
-      .content-pad { padding: 0 16px 16px 16px; } /* original spacing */
+      :host, ha-card, table, thead, tbody, tr, th, td, a, img, div {
+        -webkit-user-select: text; user-select: text;
+      }
       table {
         width: 100%;
-        /* keep defaults; no border-collapse to mimic original */
+        padding: 0 16px 16px 16px; /* original spacing back */
       }
       thead th { text-align: left; }
       tbody tr:nth-child(odd)  { background-color: var(--paper-card-background-color); }
       tbody tr:nth-child(even) { background-color: var(--secondary-background-color); }
-      td a {
-        color: var(--primary-text-color);
-        text-decoration: none;
-        font-weight: normal;
-      }
+      td a { color: var(--primary-text-color); text-decoration: none; font-weight: normal; }
     `;
 
-    if (cardConfig.title) card.header = cardConfig.title;
+    if (cardConfig.title) card.header = cardConfig.title; // original title behavior
 
-    card.appendChild(pad);
+    card.appendChild(content);
     card.appendChild(style);
     root.appendChild(card);
     this._config = cardConfig;
@@ -96,7 +88,7 @@ class ListCard extends HTMLElement {
       for (const col of columns) {
         const title = (col?.title ?? col?.field ?? '').toString();
         const cls = (col?.field ?? '').toString().trim().replace(/[^\w-]/g, '_');
-        // allow HTML in headers (matches original string injection)
+        // allow HTML in headers (matches original string injection behavior)
         html += `<th class="col-${cls}" data-field="${col.field ?? ''}">${title}</th>`;
       }
     }
@@ -153,9 +145,7 @@ class ListCard extends HTMLElement {
     content.innerHTML = html;
   }
 
-  getCardSize() {
-    return 1;
-  }
+  getCardSize() { return 1; }
 
   _renderRaw(v) {
     if (v == null) return '';
@@ -181,19 +171,12 @@ ListCard.getConfigElement = function () {
   return document.createElement('list-card-editor');
 };
 ListCard.getStubConfig = function () {
-  return {
-    entity: '',
-    title: '',
-    row_limit: 5,
-    // columns: [{ field, title, type, add_link, width, height, col_width }]
-  };
+  return { entity: '', title: '', row_limit: 5 };
 };
 
 function lc_fireConfigChanged(el, config) {
   el.dispatchEvent(new CustomEvent('config-changed', {
-    detail: { config },
-    bubbles: true,
-    composed: true,
+    detail: { config }, bubbles: true, composed: true,
   }));
 }
 
@@ -217,9 +200,7 @@ class ListCardEditor extends HTMLElement {
     this._render();
   }
 
-  get value() {
-    return this._config;
-  }
+  get value() { return this._config; }
 
   _render() {
     const root = this.shadowRoot;
@@ -393,44 +374,55 @@ class ListCardEditor extends HTMLElement {
 
   _mkTypeSelect(col, idx, container) {
     const cols = this._config.columns;
-    const commit = (getValue) => {
-      // defer to avoid DOM churn while the select is closing
+    const TYPES = ['', 'image', 'icon'];
+
+    const scheduleCommit = (valueGetter) => {
+      // Defer commit until the menu is fully closed to avoid DOM churn crashes
       setTimeout(() => {
-        const v = (getValue() || '').trim();
+        const v = (valueGetter?.() || '').trim();
         if (v) cols[idx].type = v; else delete cols[idx].type;
         lc_fireConfigChanged(this, this._config);
-        // rebuild after commit to reflect image fields
-        this._rebuildColumns(container);
+        // Safely rebuild if container is still connected
+        const target = container?.isConnected ? container : this.shadowRoot?.querySelector('.cols');
+        if (target) this._rebuildColumns(target);
       }, 0);
     };
 
+    // Prefer HA 'ha-select' only if its list item component exists; otherwise, native <select>
     if (customElements.get('ha-select') && customElements.get('mwc-list-item')) {
       const sel = document.createElement('ha-select');
       sel.label = 'type (optional)';
       sel.value = col.type || '';
-      ['', 'image', 'icon'].forEach((t) => {
+      TYPES.forEach((t) => {
         const item = document.createElement('mwc-list-item');
         item.value = t;
         item.textContent = t === '' ? '(none)' : t;
         sel.append(item);
       });
-      // commit on close/change (stable across HA versions)
-      sel.addEventListener('closed', () => commit(() => sel.value));
-      sel.addEventListener('change', () => commit(() => sel.value));
+
+      // Handle HA-specific events robustly
+      sel.addEventListener('selected', (e) => {
+        const idxSel = e.detail?.index;
+        const valFromIndex = (typeof idxSel === 'number') ? (TYPES[idxSel] ?? '') : '';
+        scheduleCommit(() => sel.value || valFromIndex);
+      });
+      sel.addEventListener('closed', () => scheduleCommit(() => sel.value));
+      sel.addEventListener('change', () => scheduleCommit(() => sel.value));
+      sel.addEventListener('blur', () => scheduleCommit(() => sel.value));
       return sel;
     }
 
     // Native fallback
     const select = document.createElement('select');
-    ['', 'image', 'icon'].forEach((t) => {
+    TYPES.forEach((t) => {
       const opt = document.createElement('option');
       opt.value = t;
       opt.textContent = t === '' ? '(none)' : t;
       if ((col.type || '') === t) opt.selected = true;
       select.append(opt);
     });
-    select.addEventListener('blur', () => commit(() => select.value));
-    select.addEventListener('change', () => commit(() => select.value));
+    select.addEventListener('change', () => scheduleCommit(() => select.value));
+    select.addEventListener('blur', () => scheduleCommit(() => select.value));
     return select;
   }
 
@@ -446,7 +438,7 @@ class ListCardEditor extends HTMLElement {
       legend.textContent = `Column ${idx + 1}`;
       fs.append(legend);
 
-      // field / title
+      // field / title (commit on blur/change)
       const r1 = document.createElement('div');
       r1.className = 'row';
       const fieldInput = this._mkTextInput('field (attribute name)', col.field || '', (val) => {
