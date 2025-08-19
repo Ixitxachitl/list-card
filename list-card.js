@@ -98,11 +98,14 @@ class ListCard extends HTMLElement {
   }
 
   set hass(hass) {
-    const config = this._config;
-    if (!config || !hass) return;
-
-    const stateObj = hass.states[config.entity];
-    if (!stateObj) { this.style.display = 'none'; return; }
+    this._hass = hass;
+    if (this._entityPicker) {
+      this._entityPicker.hass = hass;
+    } else if (this._initialized && this.shadowRoot) {
+      // Render exactly once when hass first becomes available so the entity picker shows
+      this._render();
+    }
+  }
 
     const feed = config.feed_attribute
       ? stateObj.attributes[config.feed_attribute]
@@ -345,17 +348,7 @@ class ListCardEditor extends HTMLElement {
     const list = document.createElement('div');
     list.id = 'cols-list';
 
-    // Top add button
-    const addBtnTop = document.createElement('mwc-button');
-    addBtnTop.raised = true;
-    addBtnTop.label = 'Add column';
-    addBtnTop.addEventListener('click', () => {
-      const colsNow = Array.isArray(this._config?.columns) ? [...this._config.columns] : [];
-      colsNow.push({ field: '', title: '', type: 'text', width: '', prefix: '', postfix: '' });
-      this._update('columns', colsNow);
-      this._render();
-    });
-    colsBox.appendChild(addBtnTop);
+    
 
     cols.forEach((col, idx) => list.appendChild(this._renderColumn(col, idx)));
     colsBox.appendChild(list);
@@ -404,12 +397,18 @@ class ListCardEditor extends HTMLElement {
     const yWrap = document.createElement('div');
     const ySel = document.createElement('ha-select');
     ySel.label = 'Type';
-    ['text', 'image', 'icon'].forEach((opt) => {
+    ['text','image','icon'].forEach((opt) => {
       const o = document.createElement('mwc-list-item');
-      o.value = opt; o.textContent = opt; if ((col.type || 'text') === opt) o.selected = true; ySel.appendChild(o);
+      o.value = opt;
+      o.textContent = opt;
+      ySel.appendChild(o);
     });
-    ySel.addEventListener('selected', () => this._updateArray('columns', idx, { type: ySel.value }));
-    ySel.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { type: (e.detail && e.detail.value) ?? ySel.value }));
+    ySel.value = col.type || 'text';
+    ySel.addEventListener('value-changed', (e) => {
+      const val = (e.detail && e.detail.value) || ySel.value;
+      this._updateArray('columns', idx, { type: val });
+    });
+    ySel.addEventListener('change', () => this._updateArray('columns', idx, { type: ySel.value }));
     yWrap.appendChild(ySel);
 
     row1.appendChild(fInput);
