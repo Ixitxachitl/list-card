@@ -204,7 +204,7 @@ class ListCard extends HTMLElement {
           card_content += `<td class="${cls}"${w ? ` style="width:${w}"` : ''}>`;
 
           // Link wrapper if requested
-          const wrapLink = !!col.add_link && !col.allow_html;
+          const wrapLink = !!col.add_link;
           if (wrapLink) {
             const href = row[col.add_link];
             card_content += `<a href="${encodeURI(String(href))}" target="_blank" rel="noreferrer noopener">`;
@@ -228,7 +228,7 @@ class ListCard extends HTMLElement {
             }
             if (col.prefix) text = `${col.prefix}${text ?? ''}`;
             if (col.postfix) text = `${text ?? ''}${col.postfix}`;
-            card_content += (col.allow_html ? sanitizeHTML(String(text ?? "")) : escapeHtml(String(text ?? "")));
+            card_content += String(text ?? '');
           }
 
           if (wrapLink) card_content += `</a>`;
