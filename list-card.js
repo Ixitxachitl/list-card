@@ -43,14 +43,20 @@ class ListCard extends HTMLElement {
     const content = document.createElement('div');
     const style = document.createElement('style');
 
+    // Card styles (match original padding/spacing)
     style.textContent = `
-      :host { display: block; }
-      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; align-items: start; }
-      .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; align-items: start; }
-      .columns { border: 1px solid var(--divider-color, #ddd); border-radius: 8px; padding: 12px; }
-      .col-item { border: 1px dashed var(--divider-color, #ccc); border-radius: 8px; padding: 8px; margin: 8px 0; }
-      .row > *, .row3 > * { min-width: 0; }
-      ha-textfield, ha-entity-picker, ha-select { width: 100%; }
+      :host, ha-card, table, thead, tbody, tr, th, td, a, img, span {
+        -webkit-user-select: text;
+        -moz-user-select: text;
+        -ms-user-select: text;
+        user-select: text;
+      }
+      table { width: 100%; padding: 0 16px 16px 16px; }
+      thead th { text-align: left; }
+      tbody tr:nth-child(odd) { background-color: var(--paper-card-background-color); }
+      tbody tr:nth-child(even) { background-color: var(--secondary-background-color); }
+      td a { color: var(--primary-text-color); text-decoration: none; font-weight: normal; }
+      table.has-widths { table-layout: fixed; }
     `;
 
     // Include per-column CSS from config.columns[*].style (back-compat)
@@ -58,20 +64,28 @@ class ListCard extends HTMLElement {
       for (const col of columns) {
         if (col && col.style && col.field) {
           const styles = col.style;
-          style.textContent += `\n      .${cssClass(col.field)} {`;
+          style.textContent += `
+      .${cssClass(col.field)} {`;
           for (const block of Array.isArray(styles) ? styles : [styles]) {
             if (!block) continue;
             for (const [prop, val] of Object.entries(block)) {
-              style.textContent += `\n        ${prop}: ${val};`;
+              style.textContent += `
+        ${prop}: ${val};`;
             }
           }
-          style.textContent += `\n      }`;
+          style.textContent += `
+      }`;
         }
       }
     }
 
     content.id = 'container';
-    if (cardConfig.title) { const header = document.createElement('div'); header.className = 'card-header'; header.innerHTML = String(cardConfig.title); card.appendChild(header); }
+    if (cardConfig.title) {
+      const header = document.createElement('div');
+      header.className = 'card-header';
+      header.innerHTML = String(cardConfig.title); // HTML allowed for title
+      card.appendChild(header);
+    }
     card.appendChild(content);
     card.appendChild(style);
     this.shadowRoot.appendChild(card);
@@ -79,10 +93,15 @@ class ListCard extends HTMLElement {
   }
 
   set hass(hass) {
-    this._hass = hass;
-    if (this._entityPicker) this._entityPicker.hass = hass;
-    else if (this._initialized && this.shadowRoot) this._render();
-  }
+    const config = this._config;
+    const root = this.shadowRoot;
+    if (!config || !hass) return;
+
+    const stateObj = hass.states[config.entity];
+    if (!stateObj) {
+      this.style.display = 'none';
+      return;
+    }
 
     const feed = config.feed_attribute
       ? stateObj.attributes[config.feed_attribute]
@@ -109,8 +128,7 @@ class ListCard extends HTMLElement {
       colgroup += '<colgroup>';
       for (const col of columns) {
         const w = normalizeWidth(col && col.width);
-        if (w) colgroup += `<col style="width:${w}">`;
-        else colgroup += `<col>`;
+        colgroup += w ? `<col style="width:${w}">` : `<col>`;
       }
       colgroup += '</colgroup>';
     }
@@ -130,7 +148,7 @@ class ListCard extends HTMLElement {
         if (!col) continue;
         const cls = cssClass(col.field);
         const w = normalizeWidth(col.width);
-        card_content += `<th class="${cls}"${w ? ` style="width:${w}"` : ''}>${String(col.title ?? col.field)}</th>`;
+        card_content += `<th class="${cls}"${w ? ` style="width:${w}"` : ''}>${String(col.title ?? col.field)}</th>`; // HTML allowed in titles
       }
     }
 
@@ -177,7 +195,7 @@ class ListCard extends HTMLElement {
             const icon = row[col.field];
             card_content += `<ha-icon class="column-${cls}" icon="${escapeHtml(String(icon))}"></ha-icon>`;
           } else {
-            // text
+            // text (raw to preserve HTML as before)
             let text = row[col.field];
             if (col.regex) {
               const match = new RegExp(col.regex, 'u').exec(String(row[col.field] ?? ''));
@@ -198,7 +216,6 @@ class ListCard extends HTMLElement {
     }
 
     card_content += `</tbody></table>`;
-    card.hass = hass; // keep for consistency
     this.shadowRoot.getElementById('container').innerHTML = card_content;
   }
 
