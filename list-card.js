@@ -216,7 +216,7 @@ class ListCard extends HTMLElement {
     }
 
     card_content += `</tbody></table>`;
-    this.shadowRoot.getElementById('container').innerHTML = card_content;
+    { const c = this.shadowRoot && this.shadowRoot.getElementById('container'); if (c) c.innerHTML = card_content; }
   }
 
   getCardSize() {
