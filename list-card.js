@@ -55,7 +55,7 @@ class ListCard extends HTMLElement {
       }
       table {
         width: 100%;
-        border-collapse: collapse;
+        
         padding: 0 16px 16px 16px;
       }
       table.has-widths {
@@ -64,13 +64,11 @@ class ListCard extends HTMLElement {
       thead th {
         text-align: left;
         font-weight: 600;
-        padding: 0;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
       tbody td {
-        padding: 0;
         vertical-align: top;
         overflow-wrap: anywhere;
       }
@@ -173,7 +171,7 @@ class ListCard extends HTMLElement {
         if (!col) continue;
         const cls = cssClass(col.field);
         const w = normalizeWidth(col.width);
-        card_content += `<th class="${cls}"${w ? ` style="width:${w}"` : ''}>${escapeHtml(col.title ?? col.field)}</th>`;
+        card_content += `<th class="${cls}"${w ? ` style="width:${w}"` : ''}>${String(col.title ?? col.field)}</th>`;
       }
     }
 
@@ -309,12 +307,14 @@ class ListCardEditor extends HTMLElement {
     entityPicker.hass = this._hass;
     entityPicker.value = this._config?.entity || '';
     entityPicker.setAttribute('label','Entity');
-    entityPicker.addEventListener('value-changed', (e) => this._update('entity', e.detail.value));
+    entityPicker.addEventListener('value-changed', (e) => this._update('entity', (e.detail && e.detail.value) ?? e.target.value));
+    entityPicker.addEventListener('change', (e) => this._update('entity', e.target.value));
 
     const titleInput = document.createElement('ha-textfield');
     titleInput.label = 'Title (HTML supported)';
     titleInput.value = this._config?.title || '';
-    titleInput.addEventListener('value-changed', (e) => this._update('title', e.detail.value));
+    titleInput.addEventListener('value-changed', (e) => this._update('title', (e.detail && e.detail.value) ?? e.target.value));
+    titleInput.addEventListener('input', (e) => this._update('title', e.target.value));
 
     r1.appendChild(entityPicker);
     r1.appendChild(titleInput);
@@ -327,13 +327,15 @@ class ListCardEditor extends HTMLElement {
     feedInput.label = 'Feed attribute (optional)';
     feedInput.placeholder = 'e.g. items';
     feedInput.value = this._config?.feed_attribute || '';
-    feedInput.addEventListener('value-changed', (e) => this._update('feed_attribute', e.detail.value));
+    feedInput.addEventListener('value-changed', (e) => this._update('feed_attribute', (e.detail && e.detail.value) ?? e.target.value));
+    feedInput.addEventListener('input', (e) => this._update('feed_attribute', e.target.value));
 
     const limitInput = document.createElement('ha-textfield');
     limitInput.label = 'Row limit (optional)';
     limitInput.type = 'number';
     limitInput.value = this._config?.row_limit ?? '';
-    limitInput.addEventListener('value-changed', (e) => this._update('row_limit', e.detail.value ? Number(e.detail.value) : undefined));
+    limitInput.addEventListener('value-changed', (e) => this._update('row_limit', e.detail && e.detail.value ? Number(e.detail.value) : undefined));
+    limitInput.addEventListener('input', (e) => this._update('row_limit', e.target.value ? Number(e.target.value) : undefined));
 
     r2.appendChild(feedInput);
     r2.appendChild(limitInput);
@@ -383,13 +385,15 @@ class ListCardEditor extends HTMLElement {
     const fInput = document.createElement('ha-textfield');
     fInput.label = 'Field';
     fInput.value = col.field || '';
-    fInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { field: e.detail.value }));
+    fInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { field: (e.detail && e.detail.value) ?? e.target.value }));
+    fInput.addEventListener('input', (e) => this._updateArray('columns', idx, { field: e.target.value }));
 
     // title
     const tInput = document.createElement('ha-textfield');
     tInput.label = 'Title';
     tInput.value = col.title || '';
-    tInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { title: e.detail.value }));
+    tInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { title: (e.detail && e.detail.value) ?? e.target.value }));
+    tInput.addEventListener('input', (e) => this._updateArray('columns', idx, { title: e.target.value }));
 
     // type
     const yWrap = document.createElement('div');
@@ -400,6 +404,7 @@ class ListCardEditor extends HTMLElement {
       o.value = opt; o.textContent = opt; if ((col.type || 'text') === opt) o.selected = true; ySel.appendChild(o);
     });
     ySel.addEventListener('selected', () => this._updateArray('columns', idx, { type: ySel.value }));
+    ySel.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { type: (e.detail && e.detail.value) ?? ySel.value }));
     yWrap.appendChild(ySel);
 
     row1.appendChild(fInput);
@@ -414,21 +419,24 @@ class ListCardEditor extends HTMLElement {
     wInput.label = 'Width';
     wInput.placeholder = 'e.g. 120px or 25%';
     wInput.value = col.width || '';
-    wInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { width: e.detail.value }));
+    wInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { width: (e.detail && e.detail.value) ?? e.target.value }));
+    wInput.addEventListener('input', (e) => this._updateArray('columns', idx, { width: e.target.value }));
 
     // link
     const lInput = document.createElement('ha-textfield');
     lInput.label = 'Link (field name for href)';
     lInput.placeholder = 'e.g. url';
     lInput.value = col.add_link || '';
-    lInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { add_link: e.detail.value }));
+    lInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { add_link: (e.detail && e.detail.value) ?? e.target.value }));
+    lInput.addEventListener('input', (e) => this._updateArray('columns', idx, { add_link: e.target.value }));
 
     // regex
     const rInput = document.createElement('ha-textfield');
     rInput.label = 'Regex (optional)';
     rInput.placeholder = '\d+';
     rInput.value = col.regex || '';
-    rInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { regex: e.detail.value }));
+    rInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { regex: (e.detail && e.detail.value) ?? e.target.value }));
+    rInput.addEventListener('input', (e) => this._updateArray('columns', idx, { regex: e.target.value }));
 
     row2.appendChild(wInput);
     row2.appendChild(lInput);
@@ -441,20 +449,23 @@ class ListCardEditor extends HTMLElement {
     const pInput = document.createElement('ha-textfield');
     pInput.label = 'Prefix';
     pInput.value = col.prefix || '';
-    pInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { prefix: e.detail.value }));
+    pInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { prefix: (e.detail && e.detail.value) ?? e.target.value }));
+    pInput.addEventListener('input', (e) => this._updateArray('columns', idx, { prefix: e.target.value }));
 
     // postfix
     const sInput = document.createElement('ha-textfield');
     sInput.label = 'Postfix';
     sInput.value = col.postfix || '';
-    sInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { postfix: e.detail.value }));
+    sInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { postfix: (e.detail && e.detail.value) ?? e.target.value }));
+    sInput.addEventListener('input', (e) => this._updateArray('columns', idx, { postfix: e.target.value }));
 
     // image height (only relevant for image type)
     const hInput = document.createElement('ha-textfield');
     hInput.label = 'Image height (px)';
     hInput.type = 'number';
     hInput.value = col.height || '';
-    hInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { height: e.detail.value ? Number(e.detail.value) : undefined }));
+    hInput.addEventListener('value-changed', (e) => this._updateArray('columns', idx, { height: e.detail && e.detail.value ? Number(e.detail.value) : undefined }));
+    hInput.addEventListener('input', (e) => this._updateArray('columns', idx, { height: e.target.value ? Number(e.target.value) : undefined }));
 
     row3.appendChild(pInput);
     row3.appendChild(sInput);
@@ -550,9 +561,14 @@ function sanitizeHTML(input) {
 }
 
 function fireEvent(node, type, detail, options) {
-  const event = new Event(type, { bubbles: true, composed: true, cancelable: false, ...(options || {}) });
-  event.detail = detail;
-  node.dispatchEvent(event);
+  const ev = new CustomEvent(type, {
+    bubbles: true,
+    composed: true,
+    cancelable: false,
+    ...(options || {}),
+    detail,
+  });
+  node.dispatchEvent(ev);
 }
 
 window.customCards = window.customCards || [];
