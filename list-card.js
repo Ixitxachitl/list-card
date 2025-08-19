@@ -1,4 +1,4 @@
-console.log(`%clist-card\n%cVersion: ${'0.3.6'}`, 'color: rebeccapurple; font-weight: bold;', '');
+console.log(`%clist-card\n%cVersion: ${'0.3.7'}`, 'color: rebeccapurple; font-weight: bold;', '');
 
 /* =========================
    List Card (runtime)
@@ -19,12 +19,12 @@ class ListCard extends HTMLElement {
     const cardConfig = { ...config };
     const card = document.createElement('ha-card');
 
-    // Title: plain text -> native header; otherwise (contains HTML tags) render safely inside card
+    // Title: plain header or HTML block
     if (cardConfig.title) {
       if (/<[a-z][\s\S]*>/i.test(cardConfig.title)) {
         const t = document.createElement('div');
         t.className = 'title-html';
-        t.innerHTML = cardConfig.title;
+        t.innerHTML = cardConfig.title; // intentional: allow HTML title
         card.appendChild(t);
       } else {
         card.header = cardConfig.title;
@@ -51,16 +51,10 @@ class ListCard extends HTMLElement {
         -webkit-touch-callout: default;
         touch-action: auto;
       }
-      .selectable, .selectable * {
-        user-select: text !important;
-        -webkit-user-select: text !important;
-      }
+      .selectable, .selectable * { user-select: text !important; -webkit-user-select: text !important; }
       a, img { -webkit-user-drag: none; user-drag: none; }
       .title-html { padding: 16px 16px 0 16px; }
-      table {
-        width: 100%;
-        padding: 0 16px 16px 16px; /* original spacing */
-      }
+      table { width: 100%; padding: 0 16px 16px 16px; } /* original spacing */
       thead th { text-align: left; }
       tbody tr:nth-child(odd)  { background-color: var(--paper-card-background-color); }
       tbody tr:nth-child(even) { background-color: var(--secondary-background-color); }
@@ -124,8 +118,7 @@ class ListCard extends HTMLElement {
       for (const col of columns) {
         const title = (col?.title ?? col?.field ?? '').toString();
         const cls = (col?.field ?? '').toString().trim().replace(/[^\w-]/g, '_');
-        // Allow HTML in headers (original behavior of injecting strings)
-        html += `<th class="col-${cls}" data-field="${col.field ?? ''}">${title}</th>`;
+        html += `<th class="col-${cls}" data-field="${col.field ?? ''}">${title}</th>`; // HTML allowed
       }
     }
     html += '</tr></thead><tbody>';
@@ -139,12 +132,10 @@ class ListCard extends HTMLElement {
 
       if (!columns) {
         for (const key of Object.keys(entry)) {
-          html += `<td>${this._raw(entry[key])}</td>`;
+          html += `<td>${this._raw(entry[key])}</td>`; // HTML allowed
         }
       } else {
-        if (!columns.every(c => Object.prototype.hasOwnProperty.call(entry, c.field))) {
-          continue;
-        }
+        if (!columns.every(c => Object.prototype.hasOwnProperty.call(entry, c.field))) continue;
 
         for (const col of columns) {
           const field = col.field;
@@ -166,14 +157,12 @@ class ListCard extends HTMLElement {
             const icon = entry[field];
             html += `<ha-icon class="column-${field || ''}" icon="${icon}"></ha-icon>`;
           } else {
-            // preserve raw HTML in cells
-            html += `${openLink}${this._raw(entry[field])}${closeLink}`;
+            html += `${openLink}${this._raw(entry[field])}${closeLink}`; // HTML allowed
           }
 
           html += '</td>';
         }
       }
-
       html += '</tr>';
       rendered++;
     }
@@ -217,9 +206,15 @@ class ListCardEditor extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    const picker = this.shadowRoot && this.shadowRoot.querySelector('#entity');
-    if (picker && 'hass' in picker) picker.hass = hass;
-    this._refreshEntityFallbackOptions();
+    const picker = this.shadowRoot?.getElementById('entity');
+    // If the picker has upgraded, wire hass now; otherwise wire after upgrade
+    if (picker) {
+      try { picker.hass = hass; } catch (_) {}
+    }
+    customElements.whenDefined('ha-entity-picker').then(() => {
+      const p = this.shadowRoot?.getElementById('entity');
+      if (p) { try { p.hass = this._hass; } catch (_) {} }
+    });
   }
 
   setConfig(config) { this._config = JSON.parse(JSON.stringify(config || {})); this._render(); }
@@ -241,51 +236,34 @@ class ListCardEditor extends HTMLElement {
         .cols { margin-top: 8px; }
         .col-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
         button { cursor: pointer; }
-        ha-textfield, ha-select { width: 100%; }
-        input, select {
-          width: 100%; box-sizing: border-box; padding: 8px;
-          border: 1px solid var(--divider-color, #ccc); border-radius: 6px; background: var(--card-background-color);
-          color: var(--primary-text-color);
-        }
+        ha-textfield, ha-select, ha-entity-picker { width: 100%; }
       `;
 
       const form = document.createElement('div');
       form.className = 'form';
 
-      // Row 1: entity + title
+      // Row 1: entity + title (HA components)
       const row1 = document.createElement('div');
       row1.className = 'row';
       const entityWrap = document.createElement('div');
       const titleWrap = document.createElement('div');
 
-      // Prefer HA entity picker; fallback to native <select>
-      let entityInput;
-      if (customElements.get('ha-entity-picker')) {
-        entityInput = document.createElement('ha-entity-picker');
-        entityInput.label = 'Entity';
-        entityInput.id = 'entity';
-        entityInput.allowCustomEntity = true;
-        entityInput.value = this._config.entity || '';
-        if (this._hass) entityInput.hass = this._hass;
-        entityInput.addEventListener('value-changed', (e) => {
-          const next = e.detail.value || '';
-          if ((this._config.entity || '') === next) return;
-          this._config.entity = next;
-          lc_fireConfigChanged(this, this._config);
-        });
-      } else {
-        entityInput = document.createElement('select');
-        entityInput.id = 'entity-fallback';
-        entityInput.addEventListener('change', (e) => {
-          const next = e.target.value || '';
-          if ((this._config.entity || '') === next) return;
-          this._config.entity = next;
-          lc_fireConfigChanged(this, this._config);
-        });
-      }
+      // Always create ha-entity-picker; it will upgrade when defined
+      const entityInput = document.createElement('ha-entity-picker');
+      entityInput.id = 'entity';
+      entityInput.label = 'Entity';
+      entityInput.allowCustomEntity = true;
+      entityInput.value = this._config.entity || '';
+      // Wire hass if available now; also again after upgrade (see set hass)
+      if (this._hass) { try { entityInput.hass = this._hass; } catch (_) {} }
+      entityInput.addEventListener('value-changed', (e) => {
+        const next = e.detail?.value || '';
+        if ((this._config.entity || '') === next) return;
+        this._config.entity = next;
+        lc_fireConfigChanged(this, this._config);
+      });
       entityWrap.append(entityInput);
 
-      // Title (supports HTML at runtime; here we just edit as text)
       const titleInput = this._mkTextfield('Title (text or HTML)', this._config.title || '', (val) => {
         const curr = this._config.title || '';
         const next = val || '';
@@ -356,7 +334,6 @@ class ListCardEditor extends HTMLElement {
     if (entity && !entity.value) entity.value = this._config.entity || '';
 
     this._rebuildColumns(this.shadowRoot.querySelector('.cols'));
-    this._refreshEntityFallbackOptions();
   }
 
   /* ----- HA-native inputs: commit on blur/change only ----- */
@@ -439,22 +416,18 @@ class ListCardEditor extends HTMLElement {
       });
 
       sel.addEventListener('opened', (e) => { sel._open = true; e.stopPropagation(); });
-      // Only commit when user actually picks a new value while menu is open
       sel.addEventListener('selected', (e) => {
         if (!sel._open) return;
         e.stopPropagation();
-        // Defer to ensure sel.value is updated
         setTimeout(() => commitIfChanged(sel.value), 0);
       });
-      // Also handle 'change' (keyboard selection) but not 'closed'/'blur'
       sel.addEventListener('change', (e) => { if (sel._open) { e.stopPropagation(); setTimeout(() => commitIfChanged(sel.value), 0); } });
-      // Prevent the 'closed' event from bubbling up and closing the whole editor
       sel.addEventListener('closed', (e) => { sel._open = false; e.stopPropagation(); });
       sel.addEventListener('blur', (e) => { sel._open = false; e.stopPropagation(); });
       return sel;
     }
 
-    // Native fallback
+    // Native fallback (rare; HA normally has ha-select)
     const select = document.createElement('select');
     TYPES.forEach((t) => {
       const opt = document.createElement('option');
@@ -464,7 +437,6 @@ class ListCardEditor extends HTMLElement {
       select.append(opt);
     });
     select.addEventListener('change', () => commitIfChanged(select.value));
-    // No commit on blur for native either
     return select;
   }
 
@@ -560,40 +532,6 @@ class ListCardEditor extends HTMLElement {
       fs.append(r1, r2, r3, r4, actions);
       container.append(fs);
     });
-  }
-
-  _refreshEntityFallbackOptions() {
-    const sel = this.shadowRoot && this.shadowRoot.querySelector('#entity-fallback');
-    if (!sel) return;
-    const current = this._config.entity || '';
-    sel.innerHTML = '';
-
-    const placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = 'Select entity…';
-    sel.append(placeholder);
-
-    if (this._hass?.states) {
-      const byDomain = {};
-      for (const eid of Object.keys(this._hass.states)) {
-        const domain = eid.split('.', 1)[0] || 'other';
-        (byDomain[domain] ||= []).push(eid);
-      }
-      Object.keys(byDomain).sort().forEach(domain => {
-        const group = document.createElement('optgroup');
-        group.label = domain;
-        byDomain[domain].sort().forEach(eid => {
-          const opt = document.createElement('option');
-          opt.value = eid;
-          const name = this._hass.states[eid]?.attributes?.friendly_name || eid;
-          opt.textContent = name;
-          if (eid === current) opt.selected = true;
-          group.append(opt);
-        });
-        sel.append(group);
-      });
-    }
-    if (!current) sel.value = '';
   }
 }
 
