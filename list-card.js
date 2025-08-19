@@ -1,4 +1,4 @@
-console.log(`%clist-card\n%cVersion: ${'0.3.2'}`, 'color: rebeccapurple; font-weight: bold;', '');
+console.log(`%clist-card\n%cVersion: ${'0.3.3'}`, 'color: rebeccapurple; font-weight: bold;', '');
 
 class ListCard extends HTMLElement {
   constructor() {
@@ -26,7 +26,7 @@ class ListCard extends HTMLElement {
       }
       table {
         width: 100%;
-        padding: 0 16px 16px 16px; /* original spacing back */
+        padding: 0 16px 16px 16px; /* original spacing */
       }
       thead th { text-align: left; }
       tbody tr:nth-child(odd)  { background-color: var(--paper-card-background-color); }
@@ -34,7 +34,7 @@ class ListCard extends HTMLElement {
       td a { color: var(--primary-text-color); text-decoration: none; font-weight: normal; }
     `;
 
-    if (cardConfig.title) card.header = cardConfig.title; // original title behavior
+    if (cardConfig.title) card.header = cardConfig.title;
 
     card.appendChild(content);
     card.appendChild(style);
@@ -54,7 +54,6 @@ class ListCard extends HTMLElement {
     const content = root.getElementById('container');
     const stateObj = hass.states[config.entity];
 
-    // Determine feed (array of row objects)
     const feed = config.feed_attribute
       ? stateObj.attributes?.[config.feed_attribute]
       : stateObj.attributes?.['feed'] ?? stateObj.attributes;
@@ -88,7 +87,6 @@ class ListCard extends HTMLElement {
       for (const col of columns) {
         const title = (col?.title ?? col?.field ?? '').toString();
         const cls = (col?.field ?? '').toString().trim().replace(/[^\w-]/g, '_');
-        // allow HTML in headers (matches original string injection behavior)
         html += `<th class="col-${cls}" data-field="${col.field ?? ''}">${title}</th>`;
       }
     }
@@ -103,7 +101,7 @@ class ListCard extends HTMLElement {
 
       if (!columns) {
         for (const key of Object.keys(entry)) {
-          html += `<td>${this._renderRaw(entry[key])}</td>`; // raw to preserve HTML
+          html += `<td>${this._renderRaw(entry[key])}</td>`;
         }
       } else {
         if (!columns.every(c => Object.prototype.hasOwnProperty.call(entry, c.field))) {
@@ -130,7 +128,7 @@ class ListCard extends HTMLElement {
             const icon = entry[field];
             html += `<ha-icon class="column-${field || ''}" icon="${icon}"></ha-icon>`;
           } else {
-            html += `${openLink}${this._renderRaw(entry[field])}${closeLink}`; // raw to preserve HTML
+            html += `${openLink}${this._renderRaw(entry[field])}${closeLink}`;
           }
 
           html += '</td>';
@@ -147,10 +145,7 @@ class ListCard extends HTMLElement {
 
   getCardSize() { return 1; }
 
-  _renderRaw(v) {
-    if (v == null) return '';
-    return typeof v === 'string' ? v : JSON.stringify(v);
-  }
+  _renderRaw(v) { return v == null ? '' : (typeof v === 'string' ? v : JSON.stringify(v)); }
 }
 
 customElements.define('list-card', ListCard);
@@ -323,20 +318,15 @@ class ListCardEditor extends HTMLElement {
     this._refreshEntityFallbackOptions();
   }
 
+  // ALWAYS native inputs for stability; commit on blur/change only.
   _mkTextInput(label, value, onCommit) {
-    if (customElements.get('ha-textfield')) {
-      const tf = document.createElement('ha-textfield');
-      tf.label = label;
-      tf.value = value;
-      const commit = () => onCommit(tf.value || '');
-      tf.addEventListener('blur', commit);
-      tf.addEventListener('change', commit);
-      return tf;
-    }
     const input = document.createElement('input');
     input.type = 'text';
     input.placeholder = label;
-    input.value = value;
+    input.value = value || '';
+    input.autocapitalize = 'off';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
     const commit = (e) => onCommit(e.target.value || '');
     input.addEventListener('blur', commit);
     input.addEventListener('change', commit);
@@ -344,24 +334,10 @@ class ListCardEditor extends HTMLElement {
   }
 
   _mkNumberInput(label, value, onCommit) {
-    if (customElements.get('ha-textfield')) {
-      const tf = document.createElement('ha-textfield');
-      tf.label = label;
-      tf.type = 'number';
-      tf.value = value;
-      const commit = () => {
-        const v = tf.value;
-        if (v === '' || isNaN(Number(v))) onCommit(null);
-        else onCommit(Number(v));
-      };
-      tf.addEventListener('blur', commit);
-      tf.addEventListener('change', commit);
-      return tf;
-    }
     const input = document.createElement('input');
     input.type = 'number';
     input.placeholder = label;
-    input.value = value;
+    input.value = value || '';
     const commit = (e) => {
       const v = e.target.value;
       if (v === '' || isNaN(Number(v))) onCommit(null);
@@ -375,50 +351,43 @@ class ListCardEditor extends HTMLElement {
   _mkTypeSelect(col, idx, container) {
     const cols = this._config.columns;
     const TYPES = ['', 'image', 'icon'];
+    const prev = col.type || '';
 
     const scheduleCommit = (valueGetter) => {
-      // Defer commit until the menu is fully closed to avoid DOM churn crashes
       setTimeout(() => {
         const v = (valueGetter?.() || '').trim();
+        if (v === (cols[idx].type || '')) return; // no change → no rebuild
         if (v) cols[idx].type = v; else delete cols[idx].type;
         lc_fireConfigChanged(this, this._config);
-        // Safely rebuild if container is still connected
         const target = container?.isConnected ? container : this.shadowRoot?.querySelector('.cols');
         if (target) this._rebuildColumns(target);
       }, 0);
     };
 
-    // Prefer HA 'ha-select' only if its list item component exists; otherwise, native <select>
     if (customElements.get('ha-select') && customElements.get('mwc-list-item')) {
       const sel = document.createElement('ha-select');
       sel.label = 'type (optional)';
-      sel.value = col.type || '';
+      sel.value = prev;
       TYPES.forEach((t) => {
         const item = document.createElement('mwc-list-item');
         item.value = t;
         item.textContent = t === '' ? '(none)' : t;
+        if (t === prev) item.selected = true;
         sel.append(item);
       });
-
-      // Handle HA-specific events robustly
-      sel.addEventListener('selected', (e) => {
-        const idxSel = e.detail?.index;
-        const valFromIndex = (typeof idxSel === 'number') ? (TYPES[idxSel] ?? '') : '';
-        scheduleCommit(() => sel.value || valFromIndex);
-      });
+      // No 'selected' handler (fires during construction on some builds).
       sel.addEventListener('closed', () => scheduleCommit(() => sel.value));
       sel.addEventListener('change', () => scheduleCommit(() => sel.value));
       sel.addEventListener('blur', () => scheduleCommit(() => sel.value));
       return sel;
     }
 
-    // Native fallback
     const select = document.createElement('select');
     TYPES.forEach((t) => {
       const opt = document.createElement('option');
       opt.value = t;
       opt.textContent = t === '' ? '(none)' : t;
-      if ((col.type || '') === t) opt.selected = true;
+      if (prev === t) opt.selected = true;
       select.append(opt);
     });
     select.addEventListener('change', () => scheduleCommit(() => select.value));
@@ -438,7 +407,6 @@ class ListCardEditor extends HTMLElement {
       legend.textContent = `Column ${idx + 1}`;
       fs.append(legend);
 
-      // field / title (commit on blur/change)
       const r1 = document.createElement('div');
       r1.className = 'row';
       const fieldInput = this._mkTextInput('field (attribute name)', col.field || '', (val) => {
@@ -452,18 +420,15 @@ class ListCardEditor extends HTMLElement {
       });
       r1.append(fieldInput, titleInput);
 
-      // type / add_link
       const r2 = document.createElement('div');
       r2.className = 'row';
       const typeSelect = this._mkTypeSelect(col, idx, container);
-
       const linkInput = this._mkTextInput('add_link (URL field, optional)', col.add_link || '', (val) => {
         if (val) cols[idx].add_link = val; else delete cols[idx].add_link;
         lc_fireConfigChanged(this, this._config);
       });
       r2.append(typeSelect, linkInput);
 
-      // image width/height (only for type=image)
       const r3 = document.createElement('div');
       r3.className = 'row';
       if ((col.type || '') === 'image') {
@@ -471,16 +436,13 @@ class ListCardEditor extends HTMLElement {
           if (num == null) delete cols[idx].width; else cols[idx].width = num;
           lc_fireConfigChanged(this, this._config);
         });
-
         const h = this._mkNumberInput('image height (default 90)', (col.height != null ? col.height : ''), (num) => {
           if (num == null) delete cols[idx].height; else cols[idx].height = num;
           lc_fireConfigChanged(this, this._config);
         });
-
         r3.append(w, h);
       }
 
-      // column width
       const r4 = document.createElement('div');
       r4.className = 'row single';
       const widthInput = this._mkTextInput('col_width (e.g., 120px or 25%)', col.col_width || '', (val) => {
@@ -489,7 +451,6 @@ class ListCardEditor extends HTMLElement {
       });
       r4.append(widthInput);
 
-      // actions
       const actions = document.createElement('div');
       const removeBtn = document.createElement('button');
       removeBtn.type = 'button';
