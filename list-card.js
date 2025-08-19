@@ -1,4 +1,4 @@
-console.log(`%clist-card\n%cVersion: ${'0.3.11'}`, 'color: rebeccapurple; font-weight: bold;', '');
+console.log(`%clist-card\n%cVersion: ${'0.3.12'}`, 'color: rebeccapurple; font-weight: bold;', '');
 
 /* ===== List Card runtime (unchanged from your working build) ===== */
 class ListCard extends HTMLElement {
