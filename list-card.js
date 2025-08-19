@@ -1,4 +1,4 @@
-console.log(`%clist-card\n%cVersion: ${'0.1.0'}`, 'color: rebeccapurple; font-weight: bold;', '');
+console.log(`%clist-card\n%cVersion: ${'0.2.0'}`, 'color: rebeccapurple; font-weight: bold;', '');
 
 class ListCard extends HTMLElement {
   constructor() {
@@ -8,9 +8,7 @@ class ListCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config || !config.entity) {
-      throw new Error('Please define an entity');
-    }
+    if (!config || !config.entity) throw new Error('Please define an entity');
 
     const root = this.shadowRoot;
     root.innerHTML = '';
@@ -18,10 +16,13 @@ class ListCard extends HTMLElement {
     const cardConfig = { ...config };
     const card = document.createElement('ha-card');
     const content = document.createElement('div');
-    const style = document.createElement('style');
+    content.id = 'container';
 
+    const style = document.createElement('style');
     style.textContent = `
-      ha-card { /* theme-friendly container */ }
+      :host, ha-card, table, th, td, a, img, div { -webkit-user-select: text; user-select: text; }
+      ha-card { }
+      .title-html { padding: 16px 16px 0; }
       table {
         width: 100%;
         border-collapse: collapse;
@@ -31,50 +32,23 @@ class ListCard extends HTMLElement {
       thead th { text-align: left; }
       tbody tr:nth-child(odd)  { background-color: var(--paper-card-background-color); }
       tbody tr:nth-child(even) { background-color: var(--secondary-background-color); }
-      .button { overflow: auto; padding: 16px; }
-      paper-button { float: right; }
       td a {
         color: var(--primary-text-color);
-        text-decoration-line: none;
+        text-decoration: none;
         font-weight: normal;
       }
     `;
 
-    // Per-column custom CSS from config.columns[*].style (array of CSS objects)
-    const columns = Array.isArray(cardConfig.columns) ? cardConfig.columns : null;
-    if (columns) {
-      for (const col of columns) {
-        if (col && col.style) {
-          const styles = Array.isArray(col.style) ? col.style : [col.style];
-          const clsRaw = String(col.field || '').trim();
-          const cls = clsRaw.replace(/[^\w-]/g, '_');
-          style.textContent += `
-            .${clsRaw} { /* backward-compat class */ }
-            .col-${cls} {`;
-          for (const obj of styles) {
-            for (const k in obj) {
-              style.textContent += `${k}: ${obj[k]};`;
-            }
-          }
-          style.textContent += `}`;
-        }
-      }
-      // Column width support (pixels or %), e.g. {"col_width":"120px"} or {"col_width":"25%"}
-      for (const col of columns) {
-        if (!col) continue;
-        const width = (col.col_width ?? '').toString().trim();
-        if (width) {
-          const cls = String(col.field || '').trim().replace(/[^\w-]/g, '_');
-          // Apply width to both header and body cells
-          style.textContent += `
-            th.col-${cls}, td.col-${cls} { width: ${width}; }
-          `;
-        }
-      }
+    // optional rich title (HTML)
+    if (cardConfig.title_html) {
+      const t = document.createElement('div');
+      t.className = 'title-html';
+      t.innerHTML = cardConfig.title || '';
+      card.appendChild(t);
+    } else if (cardConfig.title) {
+      card.header = cardConfig.title; // plain header text
     }
 
-    content.id = 'container';
-    if (cardConfig.title) card.header = cardConfig.title;
     card.appendChild(content);
     card.appendChild(style);
     root.appendChild(card);
@@ -108,39 +82,30 @@ class ListCard extends HTMLElement {
     const columns = Array.isArray(config.columns) ? config.columns : null;
     const rowLimit = Number.isFinite(config.row_limit) ? config.row_limit : rowsArr.length;
 
-    // Build table
+    // Build table HTML (preserve raw HTML in values)
     let html = '<table>';
 
-    // Optional <colgroup> when explicit columns are provided (helps widths)
+    // <colgroup> to help widths when provided
     if (columns) {
       html += '<colgroup>';
       for (const col of columns) {
         const width = (col?.col_width ?? '').toString().trim();
-        if (width) {
-          html += `<col style="width:${width}">`;
-        } else {
-          html += '<col>';
-        }
+        html += width ? `<col style="width:${width}">` : '<col>';
       }
       html += '</colgroup>';
     }
 
     html += '<thead><tr>';
-
     if (!columns) {
-      // Header from keys
       const keys = Object.keys(rowsArr[0] || {});
-      for (const key of keys) {
-        html += `<th>${this._escape(key)}</th>`;
-      }
+      for (const key of keys) html += `<th>${key}</th>`;
     } else {
       for (const col of columns) {
         const title = (col?.title ?? col?.field ?? '').toString();
         const cls = (col?.field ?? '').toString().trim().replace(/[^\w-]/g, '_');
-        html += `<th class="col-${cls}" data-field="${this._escapeAttr(col.field || '')}">${this._escape(title)}</th>`;
+        html += `<th class="col-${cls}" data-field="${col.field ?? ''}">${title}</th>`; // allow HTML-ish titles if you pass title_html + put title as header? keep plain here
       }
     }
-
     html += '</tr></thead><tbody>';
 
     let rendered = 0;
@@ -152,7 +117,7 @@ class ListCard extends HTMLElement {
 
       if (!columns) {
         for (const key of Object.keys(entry)) {
-          html += `<td>${this._formatValue(entry[key])}</td>`;
+          html += `<td>${this._renderValue(entry[key])}</td>`;
         }
       } else {
         // Ensure all required fields exist
@@ -163,32 +128,25 @@ class ListCard extends HTMLElement {
         for (const col of columns) {
           const field = col.field;
           const cls = String(field || '').trim().replace(/[^\w-]/g, '_');
-          html += `<td class="col-${cls} ${this._escapeAttr(field)}" data-field="${this._escapeAttr(field)}">`;
-
           const addLinkField = col.add_link;
           const linkHref = addLinkField ? (entry[addLinkField] ?? '') : '';
-          const openLink = linkHref ? `<a href="${this._escapeAttr(linkHref)}" target="_blank" rel="noopener noreferrer">` : '';
+          const openLink = linkHref ? `<a href="${linkHref}" target="_blank" rel="noopener noreferrer">` : '';
           const closeLink = linkHref ? '</a>' : '';
+
+          html += `<td class="col-${cls} ${field || ''}" data-field="${field || ''}">`;
 
           if (col.type === 'image') {
             const imgW = Number.isFinite(col.width) ? col.width : 70;
             const imgH = Number.isFinite(col.height) ? col.height : 90;
             const val = entry[field];
             const url = (Array.isArray(val) && val[0]?.url) ? val[0].url : val;
-            html += `${openLink}<img src="${this._escapeAttr(url)}" width="${imgW}" height="${imgH}" />${closeLink}`;
+            html += `${openLink}<img src="${url}" width="${imgW}" height="${imgH}" />${closeLink}`;
           } else if (col.type === 'icon') {
             const icon = entry[field];
-            html += `<ha-icon class="column-${this._escapeAttr(field)}" icon="${this._escapeAttr(icon)}"></ha-icon>`;
+            html += `<ha-icon class="column-${field || ''}" icon="${icon}"></ha-icon>`;
           } else {
-            // Text with optional regex/prefix/postfix
-            let newText = entry[field];
-            if (col.regex) {
-              const m = new RegExp(col.regex, 'u').exec(String(newText));
-              if (m) newText = m[1] ?? m[0];
-            }
-            if (col.prefix) newText = `${col.prefix}${newText}`;
-            if (col.postfix) newText = `${newText}${col.postfix}`;
-            html += `${openLink}${this._formatValue(newText)}${closeLink}`;
+            // TEXT/HTML: preserve raw HTML (no escaping) to match original behavior
+            html += `${openLink}${this._renderValue(entry[field], /*allowHTML*/ true)}${closeLink}`;
           }
 
           html += '</td>';
@@ -207,18 +165,11 @@ class ListCard extends HTMLElement {
     return 1;
   }
 
-  _escape(str) {
-    return String(str)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-  _escapeAttr(str) {
-    return this._escape(str).replace(/'/g, '&#39;');
-  }
-  _formatValue(v) {
+  _renderValue(v, allowHTML = false) {
     if (v == null) return '';
-    if (typeof v === 'object') return this._escape(JSON.stringify(v));
-    return this._escape(v);
+    if (allowHTML) return typeof v === 'string' ? v : JSON.stringify(v);
+    // default path (not used for configured columns): keep compatibility with original (raw)
+    return typeof v === 'string' ? v : JSON.stringify(v);
   }
 }
 
@@ -233,7 +184,7 @@ window.customCards.push({
 });
 
 /* ------------------------------
-   Visual Editor (non-breaking)
+   Visual Editor (simplified)
    ------------------------------ */
 
 ListCard.getConfigElement = function () {
@@ -243,8 +194,9 @@ ListCard.getStubConfig = function () {
   return {
     entity: '',
     title: '',
+    title_html: false, // set true to allow HTML title rendered inside card body
     row_limit: 5,
-    // columns: [{ field, title, type, add_link, prefix, postfix, regex, style, col_width }]
+    // columns: [{ field, title, type, add_link, width, height, col_width }]
   };
 };
 
@@ -284,6 +236,7 @@ class ListCardEditor extends HTMLElement {
     const root = this.shadowRoot;
     if (!this._built) {
       root.innerHTML = '';
+
       const style = document.createElement('style');
       style.textContent = `
         :host { display: block; }
@@ -295,16 +248,13 @@ class ListCardEditor extends HTMLElement {
         .cols { margin-top: 8px; }
         .col-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
         button { cursor: pointer; }
-        .inline { display: flex; gap: 8px; align-items: center; }
-        .small { width: 96px; }
-        .hint { color: var(--secondary-text-color); font-size: 12px; }
         input[type="text"], input[type="number"], select, textarea {
           width: 100%; box-sizing: border-box; padding: 8px;
           border: 1px solid var(--divider-color, #ccc); border-radius: 6px; background: var(--card-background-color);
           color: var(--primary-text-color);
         }
-        textarea { min-height: 64px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
       `;
+
       const form = document.createElement('div');
       form.className = 'form';
 
@@ -314,7 +264,7 @@ class ListCardEditor extends HTMLElement {
       const entityWrap = document.createElement('div');
       const titleWrap = document.createElement('div');
 
-      // Prefer HA entity picker when present
+      // Prefer HA entity picker
       let entityInput;
       if (customElements.get('ha-entity-picker')) {
         entityInput = document.createElement('ha-entity-picker');
@@ -338,35 +288,36 @@ class ListCardEditor extends HTMLElement {
       }
       entityWrap.append(entityInput);
 
+      // title (string; when title_html=true it's treated as HTML inside card)
       const titleInput = document.createElement('input');
       titleInput.type = 'text';
-      titleInput.placeholder = 'Title (optional)';
+      titleInput.placeholder = 'Title (text or HTML when "title_html" is on)';
       titleInput.value = this._config.title || '';
       titleInput.addEventListener('input', (e) => {
-        const v = e.target.value.trim();
+        const v = e.target.value;
         if (v) this._config.title = v; else delete this._config.title;
         lc_fireConfigChanged(this, this._config);
       });
       titleWrap.append(titleInput);
       row1.append(entityWrap, titleWrap);
 
-      // Row 2: feed attribute + row limit
+      // Row 2: title_html toggle + row_limit
       const row2 = document.createElement('div');
       row2.className = 'row';
-      const feedWrap = document.createElement('div');
-      const limitWrap = document.createElement('div');
 
-      const feedInput = document.createElement('input');
-      feedInput.type = 'text';
-      feedInput.placeholder = 'feed_attribute (optional)';
-      feedInput.value = this._config.feed_attribute || '';
-      feedInput.addEventListener('input', (e) => {
-        const v = e.target.value.trim();
-        if (v) this._config.feed_attribute = v; else delete this._config.feed_attribute;
+      const titleHtmlWrap = document.createElement('div');
+      const titleHtmlLabel = document.createElement('label');
+      const titleHtmlChk = document.createElement('input');
+      titleHtmlChk.type = 'checkbox';
+      titleHtmlChk.checked = !!this._config.title_html;
+      titleHtmlChk.addEventListener('change', (e) => {
+        this._config.title_html = !!e.target.checked;
         lc_fireConfigChanged(this, this._config);
       });
-      feedWrap.append(feedInput);
+      titleHtmlLabel.append(titleHtmlChk, document.createTextNode(' Render title as HTML in card body'));
+      titleHtmlWrap.append(titleHtmlLabel);
 
+      const limitWrap = document.createElement('div');
       const limitInput = document.createElement('input');
       limitInput.type = 'number';
       limitInput.min = '1';
@@ -382,9 +333,24 @@ class ListCardEditor extends HTMLElement {
         lc_fireConfigChanged(this, this._config);
       });
       limitWrap.append(limitInput);
-      row2.append(feedWrap, limitWrap);
 
-      // Columns editor
+      row2.append(titleHtmlWrap, limitWrap);
+
+      // Row 3: feed_attribute
+      const row3 = document.createElement('div');
+      row3.className = 'row single';
+      const feedInput = document.createElement('input');
+      feedInput.type = 'text';
+      feedInput.placeholder = 'feed_attribute (optional)';
+      feedInput.value = this._config.feed_attribute || '';
+      feedInput.addEventListener('input', (e) => {
+        const v = e.target.value.trim();
+        if (v) this._config.feed_attribute = v; else delete this._config.feed_attribute;
+        lc_fireConfigChanged(this, this._config);
+      });
+      row3.append(feedInput);
+
+      // Columns editor (minimal)
       const colsFs = document.createElement('fieldset');
       const legend = document.createElement('legend');
       legend.textContent = 'Columns';
@@ -392,9 +358,6 @@ class ListCardEditor extends HTMLElement {
 
       const colsHead = document.createElement('div');
       colsHead.className = 'col-head';
-      const hint = document.createElement('div');
-      hint.className = 'hint';
-      hint.textContent = 'Map each column to a field, choose type, optional regex/prefix/postfix, style JSON, and width (e.g., 120px or 25%).';
       const addBtn = document.createElement('button');
       addBtn.type = 'button';
       addBtn.textContent = 'Add column';
@@ -402,37 +365,27 @@ class ListCardEditor extends HTMLElement {
         if (!Array.isArray(this._config.columns)) this._config.columns = [];
         this._config.columns.push({ field: '', title: '' });
         lc_fireConfigChanged(this, this._config);
-        this._rebuildColumns(colsWrap); // refresh
+        this._rebuildColumns(colsWrap);
       });
-      colsHead.append(hint, addBtn);
+      colsHead.append(addBtn);
       colsFs.append(colsHead);
 
       const colsWrap = document.createElement('div');
       colsWrap.className = 'cols';
       colsFs.append(colsWrap);
 
-      // Advanced note
-      const advFs = document.createElement('fieldset');
-      const advLegend = document.createElement('legend');
-      advLegend.textContent = 'Advanced (per-column style JSON)';
-      const advHint = document.createElement('div');
-      advHint.className = 'hint';
-      advHint.textContent = 'Set "style" as an array of CSS objects (e.g., [{"font-weight":"bold"}]).';
-      advFs.append(advLegend, advHint);
-
-      // Assemble
-      form.append(row1, row2, colsFs, advFs);
+      form.append(row1, row2, row3, colsFs);
       root.append(style, form);
 
       this._built = true;
     }
 
-    // Ensure values are in sync
+    // sync entity value if present
     const entity = this.shadowRoot.querySelector('#entity');
     if (entity && !entity.value) entity.value = this._config.entity || '';
 
     this._rebuildColumns(this.shadowRoot.querySelector('.cols'));
-    this._refreshEntityFallbackOptions(); // in case of fallback select
+    this._refreshEntityFallbackOptions();
   }
 
   _rebuildColumns(container) {
@@ -461,7 +414,7 @@ class ListCardEditor extends HTMLElement {
 
       const titleInput = document.createElement('input');
       titleInput.type = 'text';
-      titleInput.placeholder = 'title (column header)';
+      titleInput.placeholder = 'title (header text or HTML)';
       titleInput.value = col.title || '';
       titleInput.addEventListener('input', (e) => {
         cols[idx].title = e.target.value;
@@ -498,7 +451,7 @@ class ListCardEditor extends HTMLElement {
       });
       r2.append(typeSelect, linkInput);
 
-      // image width/height when type === 'image'
+      // image width/height (only for type=image)
       const r3 = document.createElement('div');
       r3.className = 'row';
       if ((col.type || '') === 'image') {
@@ -526,69 +479,9 @@ class ListCardEditor extends HTMLElement {
         r3.append(w, h);
       }
 
-      // prefix / postfix
+      // column width
       const r4 = document.createElement('div');
-      r4.className = 'row';
-      const pref = document.createElement('input');
-      pref.type = 'text';
-      pref.placeholder = 'prefix (optional)';
-      pref.value = col.prefix || '';
-      pref.addEventListener('input', (e) => {
-        const v = e.target.value;
-        if (v) cols[idx].prefix = v; else delete cols[idx].prefix;
-        lc_fireConfigChanged(this, this._config);
-      });
-
-      const post = document.createElement('input');
-      post.type = 'text';
-      post.placeholder = 'postfix (optional)';
-      post.value = col.postfix || '';
-      post.addEventListener('input', (e) => {
-        const v = e.target.value;
-        if (v) cols[idx].postfix = v; else delete cols[idx].postfix;
-        lc_fireConfigChanged(this, this._config);
-      });
-      r4.append(pref, post);
-
-      // regex
-      const r5 = document.createElement('div');
-      r5.className = 'row single';
-      const regex = document.createElement('input');
-      regex.type = 'text';
-      regex.placeholder = 'regex (optional, captures group 1 if available)';
-      regex.value = col.regex || '';
-      regex.addEventListener('input', (e) => {
-        const v = e.target.value;
-        if (v) cols[idx].regex = v; else delete cols[idx].regex;
-        lc_fireConfigChanged(this, this._config);
-      });
-      r5.append(regex);
-
-      // style (advanced JSON) + column width
-      const r6 = document.createElement('div');
-      r6.className = 'row';
-      const styleArea = document.createElement('textarea');
-      styleArea.placeholder = 'style (JSON array of CSS objects, e.g. [{ "font-weight": "bold" }])';
-      styleArea.value = Array.isArray(col.style) ? JSON.stringify(col.style, null, 2) : (col.style || '');
-      styleArea.addEventListener('input', (e) => {
-        const txt = e.target.value.trim();
-        if (!txt) {
-          delete cols[idx].style;
-          styleArea.setCustomValidity('');
-          lc_fireConfigChanged(this, this._config);
-          return;
-        }
-        try {
-          const parsed = JSON.parse(txt);
-          cols[idx].style = parsed;
-          styleArea.setCustomValidity('');
-          lc_fireConfigChanged(this, this._config);
-        } catch {
-          styleArea.setCustomValidity('Invalid JSON');
-          styleArea.reportValidity();
-        }
-      });
-
+      r4.className = 'row single';
       const widthInput = document.createElement('input');
       widthInput.type = 'text';
       widthInput.placeholder = 'col_width (e.g., 120px or 25%)';
@@ -598,12 +491,10 @@ class ListCardEditor extends HTMLElement {
         if (v) cols[idx].col_width = v; else delete cols[idx].col_width;
         lc_fireConfigChanged(this, this._config);
       });
+      r4.append(widthInput);
 
-      r6.append(styleArea, widthInput);
-
-      // Row actions
+      // actions
       const actions = document.createElement('div');
-      actions.className = 'inline';
       const removeBtn = document.createElement('button');
       removeBtn.type = 'button';
       removeBtn.textContent = 'Remove column';
@@ -614,7 +505,7 @@ class ListCardEditor extends HTMLElement {
       });
       actions.append(removeBtn);
 
-      fs.append(r1, r2, r3, r4, r5, r6, actions);
+      fs.append(r1, r2, r3, r4, actions);
       container.append(fs);
     });
   }
@@ -631,12 +522,10 @@ class ListCardEditor extends HTMLElement {
     sel.append(placeholder);
 
     if (this._hass?.states) {
-      // Group by domain
       const byDomain = {};
       for (const eid of Object.keys(this._hass.states)) {
-        const [domain] = eid.split('.', 1);
-        if (!byDomain[domain]) byDomain[domain] = [];
-        byDomain[domain].push(eid);
+        const domain = eid.split('.', 1)[0] || 'other';
+        (byDomain[domain] ||= []).push(eid);
       }
       Object.keys(byDomain).sort().forEach(domain => {
         const group = document.createElement('optgroup');
@@ -652,7 +541,6 @@ class ListCardEditor extends HTMLElement {
         sel.append(group);
       });
     }
-
     if (!current) sel.value = '';
   }
 }
