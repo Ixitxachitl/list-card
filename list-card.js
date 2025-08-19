@@ -252,6 +252,23 @@ function lc_fireConfigChanged(el, config) {
   }));
 }
 
+function lc_normalizeColumns(cols) {
+  if (!cols) return [];
+  if (Array.isArray(cols)) return cols;
+  if (typeof cols === 'object') {
+    // Convert {0:{...},1:{...}} or {a:{...}} → [{...}, {...}]
+    return Object.keys(cols)
+      .sort((a, b) => {
+        // keep numeric-ish keys in order; otherwise fallback to alpha
+        const na = Number(a), nb = Number(b);
+        if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+        return a.localeCompare(b);
+      })
+      .map(k => cols[k]);
+  }
+  return [];
+}
+
 /* Visual Editor Element */
 class ListCardEditor extends HTMLElement {
   constructor() {
@@ -268,10 +285,42 @@ class ListCardEditor extends HTMLElement {
     if (picker && 'hass' in picker) picker.hass = hass;
   }
 
-  setConfig(config) {
-    this._config = JSON.parse(JSON.stringify(config || {}));
-    this._render();
+setConfig(config) {
+  // Deep copy and legacy normalization
+  const c = JSON.parse(JSON.stringify(config || {}));
+
+  // Normalize legacy object-map columns to an array
+  c.columns = lc_normalizeColumns(c.columns);
+
+  // Coerce numeric fields so inputs populate immediately
+  if (c.row_limit != null && c.row_limit !== '') {
+    const n = Number(c.row_limit);
+    if (!Number.isNaN(n)) c.row_limit = n;
+  } else {
+    delete c.row_limit;
   }
+
+  // Per-column coercions and light cleanup
+  c.columns.forEach(col => {
+    if (col.width != null && col.width !== '') {
+      const w = Number(col.width);
+      if (!Number.isNaN(w)) col.width = w; else delete col.width;
+    }
+    if (col.height != null && col.height !== '') {
+      const h = Number(col.height);
+      if (!Number.isNaN(h)) col.height = h; else delete col.height;
+    }
+    // Ensure optional strings are really strings (prevents “undefined” showing up)
+    ['field','title','type','add_link','prefix','postfix','regex'].forEach(k => {
+      if (col[k] == null) delete col[k];
+    });
+  });
+
+  this._config = c;
+
+  // Build UI and immediately render columns so type-specific fields show without toggling
+  this._render();
+}
 
   _render() {
     const root = this.shadowRoot;
