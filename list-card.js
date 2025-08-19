@@ -35,15 +35,13 @@ class ListCard extends HTMLElement {
     const cardConfig = { ...config };
     const columns = Array.isArray(cardConfig.columns)
       ? cardConfig.columns
-      : cardConfig.columns
-      ? Object.values(cardConfig.columns)
-      : undefined;
+      : (cardConfig.columns ? Object.values(cardConfig.columns) : undefined);
 
     const card = document.createElement('ha-card');
     const content = document.createElement('div');
     const style = document.createElement('style');
 
-    // Card styles (match original padding/spacing)
+    // Card styles (match original padding/spacing) + selectable text
     style.textContent = `
       :host, ha-card, table, thead, tbody, tr, th, td, a, img, span {
         -webkit-user-select: text;
@@ -59,33 +57,40 @@ class ListCard extends HTMLElement {
       table.has-widths { table-layout: fixed; }
     `;
 
-    // Include per-column CSS from config.columns[*].style (back-compat)
+    // Per-column custom CSS (back-compat)
     if (columns) {
       for (const col of columns) {
         if (col && col.style && col.field) {
-          const styles = col.style;
-          style.textContent += `
-      .${cssClass(col.field)} {`;
-          for (const block of Array.isArray(styles) ? styles : [styles]) {
-            if (!block) continue;
-            for (const [prop, val] of Object.entries(block)) {
-              style.textContent += `
-        ${prop}: ${val};`;
+          const styles = Array.isArray(col.style) ? col.style : [col.style];
+          const cls = cssClass(col.field);
+          let block = `
+.${cls} {`;
+          for (const s of styles) {
+            if (!s) continue;
+            for (const prop in s) {
+              if (Object.prototype.hasOwnProperty.call(s, prop)) {
+                block += `
+  ${prop}: ${s[prop]};`;
+              }
             }
           }
-          style.textContent += `
-      }`;
+          block += `
+}`;
+          style.textContent += block;
         }
       }
     }
 
     content.id = 'container';
+
+    // HTML title (no extra padding)
     if (cardConfig.title) {
       const header = document.createElement('div');
       header.className = 'card-header';
-      header.innerHTML = String(cardConfig.title); // HTML allowed for title
+      header.innerHTML = String(cardConfig.title);
       card.appendChild(header);
     }
+
     card.appendChild(content);
     card.appendChild(style);
     this.shadowRoot.appendChild(card);
@@ -93,32 +98,32 @@ class ListCard extends HTMLElement {
   }
 
   set hass(hass) {
-    this._hass = hass;
-    if (this._entityPicker) this._entityPicker.hass = hass;
-    // Ensure entity picker renders immediately when hass arrives
-    if (this._initialized && this.shadowRoot) this._render();
-  }
+    const config = this._config;
+    if (!config || !hass) return;
+
+    const stateObj = hass.states[config.entity];
+    if (!stateObj) { this.style.display = 'none'; return; }
 
     const feed = config.feed_attribute
       ? stateObj.attributes[config.feed_attribute]
       : stateObj.attributes;
+
     const columns = Array.isArray(config.columns)
       ? config.columns
-      : config.columns
-      ? Object.values(config.columns)
-      : undefined;
+      : (config.columns ? Object.values(config.columns) : undefined);
+
+    if (!feed || Object.keys(feed).length === 0) { this.style.display = 'none'; return; }
 
     this.style.display = 'block';
-    const rowLimit = config.row_limit ? Number(config.row_limit) : (feed ? Object.keys(feed).length : 0);
-    let rows = 0;
 
-    if (!feed || Object.keys(feed).length === 0) {
-      this.style.display = 'none';
-      return;
-    }
+    const rowLimit = config.row_limit
+      ? Number(config.row_limit)
+      : Object.keys(feed).length;
 
-    // Build table
+    // Detect widths
     const anyWidths = !!(columns && columns.some((c) => normalizeWidth(c && c.width)));
+
+    // Build colgroup
     let colgroup = '';
     if (columns) {
       colgroup += '<colgroup>';
@@ -129,14 +134,17 @@ class ListCard extends HTMLElement {
       colgroup += '</colgroup>';
     }
 
-    let card_content = `<table${anyWidths ? ' class="has-widths"' : ''}>${colgroup}<thead><tr>`;
+    // Begin table
+    let html = `<table${anyWidths ? ' class="has-widths"' : ''}>${colgroup}<thead><tr>`;
 
     if (!columns) {
-      // Infer columns from first row
-      const first = feed[Object.keys(feed)[0]];
-      for (const key in first) {
-        if (Object.prototype.hasOwnProperty.call(first, key)) {
-          card_content += `<th>${escapeHtml(key)}</th>`;
+      const firstKey = Object.keys(feed)[0];
+      const first = firstKey !== undefined ? feed[firstKey] : undefined;
+      if (first && typeof first === 'object') {
+        for (const key in first) {
+          if (Object.prototype.hasOwnProperty.call(first, key)) {
+            html += `<th>${escapeHtml(key)}</th>`;
+          }
         }
       }
     } else {
@@ -144,41 +152,45 @@ class ListCard extends HTMLElement {
         if (!col) continue;
         const cls = cssClass(col.field);
         const w = normalizeWidth(col.width);
-        card_content += `<th class="${cls}"${w ? ` style="width:${w}"` : ''}>${String(col.title ?? col.field)}</th>`; // HTML allowed in titles
+        html += `<th class="${cls}"${w ? ` style="width:${w}"` : ''}>${String(col.title ?? col.field)}</th>`; // HTML allowed in titles
       }
     }
 
-    card_content += `</tr></thead><tbody>`;
+    html += `</tr></thead><tbody>`;
 
+    let count = 0;
     for (const entryKey in feed) {
-      if (rows >= rowLimit) break;
+      if (count >= rowLimit) break;
       if (!Object.prototype.hasOwnProperty.call(feed, entryKey)) continue;
       const row = feed[entryKey];
 
-      card_content += `<tr>`;
+      html += `<tr>`;
+
       if (!columns) {
-        for (const field in row) {
-          if (!Object.prototype.hasOwnProperty.call(row, field)) continue;
-          card_content += `<td>${escapeHtml(String(row[field]))}</td>`;
+        if (row && typeof row === 'object') {
+          for (const field in row) {
+            if (!Object.prototype.hasOwnProperty.call(row, field)) continue;
+            html += `<td>${escapeHtml(String(row[field]))}</td>`;
+          }
         }
       } else {
         // Ensure every configured field exists
-        let hasAll = true;
+        let ok = true;
         for (const col of columns) {
-          if (!row || !Object.prototype.hasOwnProperty.call(row, col.field)) { hasAll = false; break; }
+          if (!row || !Object.prototype.hasOwnProperty.call(row, col.field)) { ok = false; break; }
         }
-        if (!hasAll) { continue; }
+        if (!ok) { continue; }
 
         for (const col of columns) {
           const cls = cssClass(col.field);
           const w = normalizeWidth(col.width);
-          card_content += `<td class="${cls}"${w ? ` style="width:${w}"` : ''}>`;
+          html += `<td class="${cls}"${w ? ` style="width:${w}"` : ''}>`;
 
-          // Link wrapper if requested
-          const wrapLink = !!col.add_link;
-          if (wrapLink) {
+          // Optional link wrapper
+          const wrap = !!col.add_link;
+          if (wrap) {
             const href = row[col.add_link];
-            card_content += `<a href="${encodeURI(String(href))}" target="_blank" rel="noreferrer noopener">`;
+            html += `<a href="${encodeURI(String(href))}" target="_blank" rel="noreferrer noopener">`;
           }
 
           if (col.type === 'image') {
@@ -186,12 +198,12 @@ class ListCard extends HTMLElement {
             const imageHeight = Number(col.height) || 90;
             const data = row[col.field];
             const url = Array.isArray(data) && data[0] && data[0].url ? data[0].url : data;
-            card_content += `<img src="${encodeURI(String(url))}" width="${imageWidth}" height="${imageHeight}" alt="" />`;
+            html += `<img src="${encodeURI(String(url))}" width="${imageWidth}" height="${imageHeight}" alt="">`;
           } else if (col.type === 'icon') {
             const icon = row[col.field];
-            card_content += `<ha-icon class="column-${cls}" icon="${escapeHtml(String(icon))}"></ha-icon>`;
+            html += `<ha-icon class="column-${cls}" icon="${escapeHtml(String(icon))}"></ha-icon>`;
           } else {
-            // text (raw to preserve HTML as before)
+            // plain text / HTML passthrough (as original)
             let text = row[col.field];
             if (col.regex) {
               const match = new RegExp(col.regex, 'u').exec(String(row[col.field] ?? ''));
@@ -199,25 +211,26 @@ class ListCard extends HTMLElement {
             }
             if (col.prefix) text = `${col.prefix}${text ?? ''}`;
             if (col.postfix) text = `${text ?? ''}${col.postfix}`;
-            card_content += String(text ?? '');
+            html += String(text ?? '');
           }
 
-          if (wrapLink) card_content += `</a>`;
+          if (wrap) html += `</a>`;
 
-          card_content += `</td>`;
+          html += `</td>`;
         }
       }
-      card_content += `</tr>`;
-      rows++;
+
+      html += `</tr>`;
+      count++;
     }
 
-    card_content += `</tbody></table>`;
-    { const c = this.shadowRoot && this.shadowRoot.getElementById('container'); if (c) c.innerHTML = card_content; }
+    html += `</tbody></table>`;
+
+    const container = this.shadowRoot && this.shadowRoot.getElementById('container');
+    if (container) container.innerHTML = html;
   }
 
-  getCardSize() {
-    return 1;
-  }
+  getCardSize() { return 1; }
 }
 
 customElements.define('list-card', ListCard);
@@ -249,6 +262,8 @@ class ListCardEditor extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (this._entityPicker) this._entityPicker.hass = hass;
+    // If hass arrives after first render, re-render once so entity picker shows immediately
+    if (this._initialized && this.shadowRoot) this._render();
   }
 
   _emitConfig() {
