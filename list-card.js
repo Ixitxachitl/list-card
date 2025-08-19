@@ -44,48 +44,13 @@ class ListCard extends HTMLElement {
     const style = document.createElement('style');
 
     style.textContent = `
-      :host, ha-card, table, thead, tbody, tr, th, td, a, img, span {
-        -webkit-user-select: text;
-        -moz-user-select: text;
-        -ms-user-select: text;
-        user-select: text;
-      }
-      ha-card {
-        /* place to theme */
-      }
-      table {
-        width: 100%;
-        
-        padding: 0 16px 16px 16px;
-      }
-      table.has-widths {
-        table-layout: fixed; /* ensures widths are respected */
-      }
-      thead th {
-        text-align: left;
-        font-weight: 600;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      tbody td {
-        vertical-align: top;
-        overflow-wrap: anywhere;
-      }
-      tbody tr:nth-child(odd) {
-        background-color: var(--paper-card-background-color);
-      }
-      tbody tr:nth-child(even) {
-        background-color: var(--secondary-background-color);
-      }
-      .button { overflow: auto; padding: 16px; }
-      paper-button { float: right; }
-      td a {
-        color: var(--primary-text-color);
-        text-decoration: none;
-        font-weight: normal;
-        cursor: pointer; /* keep links clickable even though text is selectable */
-      }
+      :host { display: block; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; align-items: start; }
+      .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; align-items: start; }
+      .columns { border: 1px solid var(--divider-color, #ddd); border-radius: 8px; padding: 12px; }
+      .col-item { border: 1px dashed var(--divider-color, #ccc); border-radius: 8px; padding: 8px; margin: 8px 0; }
+      .row > *, .row3 > * { min-width: 0; }
+      ha-textfield, ha-entity-picker, ha-select { width: 100%; }
     `;
 
     // Include per-column CSS from config.columns[*].style (back-compat)
@@ -114,16 +79,10 @@ class ListCard extends HTMLElement {
   }
 
   set hass(hass) {
-    const config = this._config;
-    const root = this.shadowRoot;
-    const card = root.lastChild;
-    if (!config || !hass) return;
-
-    const stateObj = hass.states[config.entity];
-    if (!stateObj) {
-      this.style.display = 'none';
-      return;
-    }
+    this._hass = hass;
+    if (this._entityPicker) this._entityPicker.hass = hass;
+    else if (this._initialized && this.shadowRoot) this._render();
+  }
 
     const feed = config.feed_attribute
       ? stateObj.attributes[config.feed_attribute]
@@ -264,6 +223,10 @@ class ListCardEditor extends HTMLElement {
     const prevLen = (this._config && Array.isArray(this._config.columns)) ? this._config.columns.length : undefined;
     const nextLen = (config && Array.isArray(config.columns)) ? config.columns.length : undefined;
     this._config = { ...config };
+    // Normalize legacy object-shaped columns to array
+    if (this._config && this._config.columns && !Array.isArray(this._config.columns)) {
+      this._config = { ...this._config, columns: Object.values(this._config.columns) };
+    }
     if (!this._initialized || prevLen !== nextLen) {
       this._initialized = true;
       this._render();
@@ -357,12 +320,10 @@ class ListCardEditor extends HTMLElement {
     addBtn.raised = true;
     addBtn.label = 'Add column';
     addBtn.addEventListener('click', () => {
-      const next = [
-        ...cols,
-        { field: '', title: '', type: 'text', width: '', prefix: '', postfix: '' },
-      ];
-      this._update('columns', next);
-      this._render(); // structural change → safe rerender
+      const colsNow = Array.isArray(this._config?.columns) ? [...this._config.columns] : [];
+      colsNow.push({ field: '', title: '', type: 'text', width: '', prefix: '', postfix: '' });
+      this._update('columns', colsNow);
+      this._render();
     });
     colsBox.appendChild(addBtn);
 
