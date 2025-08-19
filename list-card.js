@@ -93,15 +93,11 @@ class ListCard extends HTMLElement {
   }
 
   set hass(hass) {
-    const config = this._config;
-    const root = this.shadowRoot;
-    if (!config || !hass) return;
-
-    const stateObj = hass.states[config.entity];
-    if (!stateObj) {
-      this.style.display = 'none';
-      return;
-    }
+    this._hass = hass;
+    if (this._entityPicker) this._entityPicker.hass = hass;
+    // Ensure entity picker renders immediately when hass arrives
+    if (this._initialized && this.shadowRoot) this._render();
+  }
 
     const feed = config.feed_attribute
       ? stateObj.attributes[config.feed_attribute]
@@ -271,10 +267,12 @@ class ListCardEditor extends HTMLElement {
     const style = document.createElement('style');
     style.textContent = `
       :host { display: block; }
-      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
-      .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; align-items: start; }
+      .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; align-items: start; }
       .columns { border: 1px solid var(--divider-color, #ddd); border-radius: 8px; padding: 12px; }
       .col-item { border: 1px dashed var(--divider-color, #ccc); border-radius: 8px; padding: 8px; margin: 8px 0; }
+      .row > *, .row3 > * { min-width: 0; }
+      ha-textfield, ha-entity-picker, ha-select { width: 100%; }
     `;
 
     const wrap = document.createElement('div');
@@ -330,6 +328,20 @@ class ListCardEditor extends HTMLElement {
     const cols = Array.isArray(this._config?.columns) ? this._config.columns : [];
 
     const list = document.createElement('div');
+    list.id = 'cols-list';
+
+    // Top add button
+    const addBtnTop = document.createElement('mwc-button');
+    addBtnTop.raised = true;
+    addBtnTop.label = 'Add column';
+    addBtnTop.addEventListener('click', () => {
+      const colsNow = Array.isArray(this._config?.columns) ? [...this._config.columns] : [];
+      colsNow.push({ field: '', title: '', type: 'text', width: '', prefix: '', postfix: '' });
+      this._update('columns', colsNow);
+      this._render();
+    });
+    colsBox.appendChild(addBtnTop);
+
     cols.forEach((col, idx) => list.appendChild(this._renderColumn(col, idx)));
     colsBox.appendChild(list);
 
