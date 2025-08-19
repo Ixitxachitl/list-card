@@ -15,8 +15,8 @@ class ListCard extends HTMLElement {
       columns: [
         { field: 'title', title: 'Title', width: '40%' },
         { field: 'status', title: 'Status', width: '120px' },
-        { field: 'url', title: 'Link', add_link: 'url' },
-      ],
+        { field: 'url', title: 'Link', add_link: 'url' }
+      ]
     };
   }
 
@@ -41,7 +41,6 @@ class ListCard extends HTMLElement {
     const content = document.createElement('div');
     const style = document.createElement('style');
 
-    // Card styles (match original padding/spacing) + selectable text
     style.textContent = `
       :host, ha-card, table, thead, tbody, tr, th, td, a, img, span {
         -webkit-user-select: text;
@@ -57,7 +56,6 @@ class ListCard extends HTMLElement {
       table.has-widths { table-layout: fixed; }
     `;
 
-    // Per-column custom CSS (back-compat)
     if (columns) {
       for (const col of columns) {
         if (col && col.style && col.field) {
@@ -82,12 +80,10 @@ class ListCard extends HTMLElement {
     }
 
     content.id = 'container';
-
-    // HTML title (no extra padding)
     if (cardConfig.title) {
       const header = document.createElement('div');
       header.className = 'card-header';
-      header.innerHTML = String(cardConfig.title);
+      header.innerHTML = String(cardConfig.title); // allow HTML title
       card.appendChild(header);
     }
 
@@ -98,14 +94,11 @@ class ListCard extends HTMLElement {
   }
 
   set hass(hass) {
-    this._hass = hass;
-    if (this._entityPicker) {
-      this._entityPicker.hass = hass;
-    } else if (this._initialized && this.shadowRoot) {
-      // Render exactly once when hass first becomes available so the entity picker shows
-      this._render();
-    }
-  }
+    const config = this._config;
+    if (!config || !hass) return;
+
+    const stateObj = hass.states[config.entity];
+    if (!stateObj) { this.style.display = 'none'; return; }
 
     const feed = config.feed_attribute
       ? stateObj.attributes[config.feed_attribute]
@@ -119,14 +112,10 @@ class ListCard extends HTMLElement {
 
     this.style.display = 'block';
 
-    const rowLimit = config.row_limit
-      ? Number(config.row_limit)
-      : Object.keys(feed).length;
+    const rowLimit = config.row_limit ? Number(config.row_limit) : Object.keys(feed).length;
 
-    // Detect widths
     const anyWidths = !!(columns && columns.some((c) => normalizeWidth(c && c.width)));
 
-    // Build colgroup
     let colgroup = '';
     if (columns) {
       colgroup += '<colgroup>';
@@ -137,7 +126,6 @@ class ListCard extends HTMLElement {
       colgroup += '</colgroup>';
     }
 
-    // Begin table
     let html = `<table${anyWidths ? ' class="has-widths"' : ''}>${colgroup}<thead><tr>`;
 
     if (!columns) {
@@ -155,7 +143,7 @@ class ListCard extends HTMLElement {
         if (!col) continue;
         const cls = cssClass(col.field);
         const w = normalizeWidth(col.width);
-        html += `<th class="${cls}"${w ? ` style="width:${w}"` : ''}>${String(col.title ?? col.field)}</th>`; // HTML allowed in titles
+        html += `<th class="${cls}"${w ? ` style="width:${w}"` : ''}>${String(col.title ?? col.field)}</th>`; // allow HTML in headers
       }
     }
 
@@ -177,7 +165,6 @@ class ListCard extends HTMLElement {
           }
         }
       } else {
-        // Ensure every configured field exists
         let ok = true;
         for (const col of columns) {
           if (!row || !Object.prototype.hasOwnProperty.call(row, col.field)) { ok = false; break; }
@@ -187,9 +174,8 @@ class ListCard extends HTMLElement {
         for (const col of columns) {
           const cls = cssClass(col.field);
           const w = normalizeWidth(col.width);
-          html += `<td class="${cls}"${w ? ` style="width:${w}"` : ''}>`;
+          html += `<td class="${cls}"${w ? ` style=\"width:${w}\"` : ''}>`;
 
-          // Optional link wrapper
           const wrap = !!col.add_link;
           if (wrap) {
             const href = row[col.add_link];
@@ -206,7 +192,6 @@ class ListCard extends HTMLElement {
             const icon = row[col.field];
             html += `<ha-icon class="column-${cls}" icon="${escapeHtml(String(icon))}"></ha-icon>`;
           } else {
-            // plain text / HTML passthrough (as original)
             let text = row[col.field];
             if (col.regex) {
               const match = new RegExp(col.regex, 'u').exec(String(row[col.field] ?? ''));
