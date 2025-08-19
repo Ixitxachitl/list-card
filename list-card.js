@@ -1,4 +1,4 @@
-console.log(`%clist-card\n%cVersion: ${'0.5.0'}`,'color: rebeccapurple; font-weight: bold;','');
+console.log(`%clist-card\n%cVersion: ${'0.6.0'}`,'color: rebeccapurple; font-weight: bold;','');
 
 class ListCard extends HTMLElement {
   constructor() {
@@ -231,6 +231,7 @@ class ListCardEditor extends HTMLElement {
     super();
     this._initialized = false;
     this._debounce = null;
+    this._didHassRender = false; // render editor once when hass first arrives
   }
 
   setConfig(config) {
@@ -249,9 +250,14 @@ class ListCardEditor extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    if (this._entityPicker) this._entityPicker.hass = hass;
-    // If hass arrives after first render, re-render once so entity picker shows immediately
-    if (this._initialized && this.shadowRoot) this._render();
+    if (this._entityPicker) {
+      this._entityPicker.hass = hass;
+      return; // no re-render needed once picker exists
+    }
+    if (!this._didHassRender && this.shadowRoot) {
+      this._didHassRender = true;
+      this._render(); // render exactly once so entity picker appears
+    }
   }
 
   _emitConfig() {
@@ -389,11 +395,13 @@ class ListCardEditor extends HTMLElement {
       ySel.appendChild(o);
     });
     ySel.value = col.type || 'text';
-    ySel.addEventListener('value-changed', (e) => {
-      const val = (e.detail && e.detail.value) || ySel.value;
+    const applyType = (val) => {
+      const cur = (Array.isArray(this._config?.columns) && this._config.columns[idx] && this._config.columns[idx].type) || 'text';
+      if (cur === val) return; // avoid redundant updates that cause label flicker
       this._updateArray('columns', idx, { type: val });
-    });
-    ySel.addEventListener('change', () => this._updateArray('columns', idx, { type: ySel.value }));
+    };
+    ySel.addEventListener('value-changed', (e) => applyType((e.detail && e.detail.value) || ySel.value));
+    ySel.addEventListener('change', () => applyType(ySel.value));
     yWrap.appendChild(ySel);
 
     row1.appendChild(fInput);
