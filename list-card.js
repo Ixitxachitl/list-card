@@ -237,22 +237,205 @@ class ListCardEditor extends HTMLElement {
   }
 
   setConfig(config) {
-    const prevLen = (this._config && Array.isArray(this._config.columns)) ? this._config.columns.length : undefined;
-    const nextLen = (config && Array.isArray(config.columns)) ? config.columns.length : undefined;
-    this._config = { ...config };
-    // Normalize legacy object-shaped columns to array
-    if (this._config && this._config.columns && !Array.isArray(this._config.columns)) {
-      this._config = { ...this._config, columns: Object.values(this._config.columns) };
+    if (!config || !config.entity) {
+      throw new Error('Please define an entity');
     }
-    if (!this._initialized || prevLen !== nextLen) {
-      this._initialized = true;
-      this._render();
+  
+    const root = this.shadowRoot;
+    if (root.lastChild) root.removeChild(root.lastChild);
+  
+    const cardConfig = { ...config };
+    const columns = Array.isArray(cardConfig.columns)
+      ? cardConfig.columns
+      : (cardConfig.columns ? Object.values(cardConfig.columns) : undefined);
+  
+    const card = document.createElement('ha-card');
+    const content = document.createElement('div');
+    const style = document.createElement('style');
+  
+    // Original spacing + selectable text
+    style.textContent = `
+      :host, ha-card, table, thead, tbody, tr, th, td, a, img, span {
+        -webkit-user-select: text;
+        -moz-user-select: text;
+        -ms-user-select: text;
+        user-select: text;
+      }
+      table { width: 100%; padding: 0 16px 16px 16px; }
+      thead th { text-align: left; }
+      tbody tr:nth-child(odd) { background-color: var(--paper-card-background-color); }
+      tbody tr:nth-child(even) { background-color: var(--secondary-background-color); }
+      td a { color: var(--primary-text-color); text-decoration: none; font-weight: normal; }
+      table.has-widths { table-layout: fixed; }
+    `;
+  
+    // Per-column CSS (back-compat)
+    if (columns) {
+      for (const col of columns) {
+        if (col && col.style && col.field) {
+          const styles = Array.isArray(col.style) ? col.style : [col.style];
+          const cls = cssClass(col.field);
+          let block = `\n.${cls} {`;
+          for (const s of styles) {
+            if (!s) continue;
+            for (const prop in s) {
+              if (Object.prototype.hasOwnProperty.call(s, prop)) {
+                block += `\n  ${prop}: ${s[prop]};`;
+              }
+            }
+          }
+          block += `\n}`;
+          style.textContent += block;
+        }
+      }
     }
+  
+    content.id = 'container';
+  
+    // HTML title (no extra padding)
+    if (cardConfig.title) {
+      const header = document.createElement('div');
+      header.className = 'card-header';
+      header.innerHTML = String(cardConfig.title);
+      card.appendChild(header);
+    }
+  
+    card.appendChild(content);
+    card.appendChild(style);
+    this.shadowRoot.appendChild(card);
+    this._config = cardConfig;
   }
-
+  
   set hass(hass) {
-    this._hass = hass;
-    if (this._entityPicker) this._entityPicker.hass = hass;
+    const config = this._config;
+    if (!config || !hass) return;
+  
+    const stateObj = hass.states[config.entity];
+    if (!stateObj) { this.style.display = 'none'; return; }
+  
+    const feed = config.feed_attribute
+      ? stateObj.attributes[config.feed_attribute]
+      : stateObj.attributes;
+  
+    const columns = Array.isArray(config.columns)
+      ? config.columns
+      : (config.columns ? Object.values(config.columns) : undefined);
+  
+    this.style.display = 'block';
+  
+    const rowLimit = config.row_limit
+      ? Number(config.row_limit)
+      : (feed ? Object.keys(feed).length : 0);
+  
+    if (!feed || Object.keys(feed).length === 0) {
+      this.style.display = 'none';
+      return;
+    }
+  
+    const anyWidths = !!(columns && columns.some((c) => normalizeWidth(c && c.width)));
+  
+    // colgroup for widths
+    let colgroup = '';
+    if (columns) {
+      colgroup += '<colgroup>';
+      for (const col of columns) {
+        const w = normalizeWidth(col && col.width);
+        colgroup += w ? `<col style="width:${w}">` : `<col>`;
+      }
+      colgroup += '</colgroup>';
+    }
+  
+    let card_content = `<table${anyWidths ? ' class="has-widths"' : ''}>${colgroup}<thead><tr>`;
+  
+    if (!columns) {
+      const firstKey = Object.keys(feed)[0];
+      const first = firstKey !== undefined ? feed[firstKey] : undefined;
+      if (first && typeof first === 'object') {
+        for (const key in first) {
+          if (Object.prototype.hasOwnProperty.call(first, key)) {
+            card_content += `<th>${escapeHtml(key)}</th>`;
+          }
+        }
+      }
+    } else {
+      for (const col of columns) {
+        if (!col) continue;
+        const cls = cssClass(col.field);
+        const w = normalizeWidth(col.width);
+        // Column titles allow HTML
+        card_content += `<th class="${cls}"${w ? ` style="width:${w}"` : ''}>${String(col.title ?? col.field)}</th>`;
+      }
+    }
+  
+    card_content += `</tr></thead><tbody>`;
+  
+    let rows = 0;
+    for (const entryKey in feed) {
+      if (rows >= rowLimit) break;
+      if (!Object.prototype.hasOwnProperty.call(feed, entryKey)) continue;
+      const row = feed[entryKey];
+  
+      card_content += `<tr>`;
+  
+      if (!columns) {
+        if (row && typeof row === 'object') {
+          for (const field in row) {
+            if (!Object.prototype.hasOwnProperty.call(row, field)) continue;
+            card_content += `<td>${escapeHtml(String(row[field]))}</td>`;
+          }
+        }
+      } else {
+        // Ensure every configured field exists
+        let hasAll = true;
+        for (const col of columns) {
+          if (!row || !Object.prototype.hasOwnProperty.call(row, col.field)) { hasAll = false; break; }
+        }
+        if (!hasAll) { continue; }
+  
+        for (const col of columns) {
+          const cls = cssClass(col.field);
+          const w = normalizeWidth(col.width);
+          card_content += `<td class="${cls}"${w ? ` style="width:${w}"` : ''}>`;
+  
+          const wrapLink = !!col.add_link;
+          if (wrapLink) {
+            const href = row[col.add_link];
+            card_content += `<a href="${encodeURI(String(href))}" target="_blank" rel="noreferrer noopener">`;
+          }
+  
+          if (col.type === 'image') {
+            const imageWidth = Number(col.width) || 70;
+            const imageHeight = Number(col.height) || 90;
+            const data = row[col.field];
+            const url = Array.isArray(data) && data[0] && data[0].url ? data[0].url : data;
+            card_content += `<img src="${encodeURI(String(url))}" width="${imageWidth}" height="${imageHeight}" alt="">`;
+          } else if (col.type === 'icon') {
+            const icon = row[col.field];
+            card_content += `<ha-icon class="column-${cls}" icon="${escapeHtml(String(icon))}"></ha-icon>`;
+          } else {
+            // text (raw so existing markup renders)
+            let text = row[col.field];
+            if (col.regex) {
+              const match = new RegExp(col.regex, 'u').exec(String(row[col.field] ?? ''));
+              if (match) text = match[0];
+            }
+            if (col.prefix) text = `${col.prefix}${text ?? ''}`;
+            if (col.postfix) text = `${text ?? ''}${col.postfix}`;
+            card_content += String(text ?? '');
+          }
+  
+          if (wrapLink) card_content += `</a>`;
+          card_content += `</td>`;
+        }
+      }
+  
+      card_content += `</tr>`;
+      rows++;
+    }
+  
+    card_content += `</tbody></table>`;
+    const node = this.shadowRoot.getElementById('container');
+    if (node) node.innerHTML = card_content;
   }
 
   _emitConfig() {
