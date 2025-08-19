@@ -166,17 +166,65 @@ class ListCardEditor extends HTMLElement {
       const form = document.createElement('div'); form.className = 'form';
 
       // Entity
-      const entityRow = document.createElement('div'); entityRow.className = 'row';
-      const entityInput = document.createElement('ha-entity-picker');
-      entityInput.id = 'entity'; entityInput.label = 'Entity';
-      entityInput.setAttribute('allow-custom-entity', ''); entityInput.allowCustomEntity = true;
-      entityInput.value = this._config.entity || '';
-      entityInput.addEventListener('value-changed', (e) => {
-        const next = e.detail?.value || ''; if ((this._config.entity || '') === next) return;
-        this._config.entity = next; lc_fireConfigChanged(this, this._config);
-      });
-      entityRow.append(entityInput);
-
+      const entityRow = document.createElement('div');
+      entityRow.className = 'row';
+      
+      if (!customElements.get('ha-entity-picker')) {
+        // Fallback shown only during first-moment cold loads
+        const sel = document.createElement('select');
+        sel.id = 'entity-fallback';
+        const none = document.createElement('option');
+        none.value = ''; none.textContent = 'Select entity…';
+        sel.append(none);
+        if (this._hass?.states) {
+          Object.keys(this._hass.states).sort().forEach(eid => {
+            const opt = document.createElement('option');
+            opt.value = eid;
+            opt.textContent = this._hass.states[eid]?.attributes?.friendly_name || eid;
+            if ((this._config.entity || '') === eid) opt.selected = true;
+            sel.append(opt);
+          });
+        }
+        sel.addEventListener('change', (e) => {
+          const next = e.target.value || '';
+          if ((this._config.entity || '') === next) return;
+          this._config.entity = next;
+          lc_fireConfigChanged(this, this._config);
+        });
+        entityRow.append(sel);
+      
+        // When the real picker registers, swap it in-place
+        customElements.whenDefined('ha-entity-picker').then(() => {
+          const picker = document.createElement('ha-entity-picker');
+          picker.id = 'entity';
+          picker.label = 'Entity';
+          picker.allowCustomEntity = true;
+          try { if (this._hass) picker.hass = this._hass; } catch(_) {}
+          picker.value = this._config.entity || '';
+          picker.addEventListener('value-changed', (ev) => {
+            const next = ev.detail?.value || '';
+            if ((this._config.entity || '') === next) return;
+            this._config.entity = next;
+            lc_fireConfigChanged(this, this._config);
+          });
+          sel.replaceWith(picker);
+        });
+      } else {
+        const picker = document.createElement('ha-entity-picker');
+        picker.id = 'entity';
+        picker.label = 'Entity';
+        picker.allowCustomEntity = true;
+        try { if (this._hass) picker.hass = this._hass; } catch(_) {}
+        picker.value = this._config.entity || '';
+        picker.addEventListener('value-changed', (e) => {
+          const next = e.detail?.value || '';
+          if ((this._config.entity || '') === next) return;
+          this._config.entity = next;
+          lc_fireConfigChanged(this, this._config);
+        });
+        entityRow.append(picker);
+      }
+      
       // Title
       const titleRow = document.createElement('div'); titleRow.className = 'row';
       titleRow.append(this._mkTextfield('Title (text or HTML)', this._config.title || '', (val) => {
