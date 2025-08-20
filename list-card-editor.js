@@ -6,9 +6,6 @@ import "../../../components/ha-entity-picker";
 import "../../../components/ha-textfield";
 import "../../../components/ha-select";
 
-// If you use <mwc-list-item> in a type select:
-import "@material/mwc-list/mwc-list-item.js";
-
 function fireConfigChanged(el, config) {
   el.dispatchEvent(new CustomEvent("config-changed", { detail: { config }, bubbles: true, composed: true }));
 }
