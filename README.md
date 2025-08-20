@@ -1,25 +1,12 @@
 # List Card by [@iantrich](https://www.github.com/iantrich)
+# Fork by [@ixitxachitl](https://www.github.com/ixitxachitl)
 
 This card for [Lovelace](https://www.home-assistant.io/lovelace) on [Home Assistant](https://www.home-assistant.io/) that gives you a table generated with data from the [feedparser custom component](https://github.com/custom-components/sensor.feedparser) or any other sensor that provides data as a list of attributes.
 
-[![GitHub Release][releases-shield]][releases]
-[![License][license-shield]](LICENSE.md)
-
-![Project Maintenance][maintenance-shield]
-[![GitHub Activity][commits-shield]][commits]
-
-[![Discord][discord-shield]][discord]
-[![Community Forum][forum-shield]][forum]
-
-[![Twitter][twitter]][twitter]
-[![Github][github]][github]
-
-## Support
-Hey dude! Help me out for a couple of :beers: or a :coffee:!
-
-[![coffee](https://www.buymeacoffee.com/assets/img/custom_images/black_img.png)](https://www.buymeacoffee.com/zJtVxUAgH)
-
-Great resource for further filtering your feeds is [siftrss](https://siftrss.com/)
+This fork focuses on:
+- A **native visual editor** that uses Home Assistant’s standard controls
+- **Selectable text**
+- Simple column sizing via **`col_width`** (px, %, etc.)
 
 ![example](example.png)
 
@@ -43,6 +30,7 @@ From left to right: [feedparser](https://github.com/custom-components/sensor.fee
 | title | string | **Required** | Column header to display.
 | field | string | **Required** | key value of the entity that you wish to display.
 | add_link | string | **Optional** | key value of entity that has the link property to use.
+| col_width | string  | **Optional** | Column width (any CSS unit: `120px`, `25%`, `10rem`, etc.) 
 | type | string | **Optional** | options are `image` and `icon`. Default is `None`. **Only set this for images or icons, otherwise leave blank**
 | style | object | **Optional** | CSS styles to apply to this column.
 | width | string | **Optional** | If type is image, sets the width of the image. Default 70.
