@@ -1,13 +1,8 @@
 // list-card-editor.js
-// Single-purpose editor module that waits for HA's editor elements to be registered
-// (no direct imports of Home Assistant internals).
-
-(function () {
-    const CHANGE_EVT = 'config-changed';
-
-    function fireConfigChanged(el, config) {
-        el.dispatchEvent(new CustomEvent(CHANGE_EVT, { detail: { config }, bubbles: true, composed: true }));
-    }
+(() => {
+    const EV = 'config-changed';
+    const fireCfg = (el, config) =>
+        el.dispatchEvent(new CustomEvent(EV, { detail: { config }, bubbles: true, composed: true }));
 
     class ListCardEditor extends HTMLElement {
         constructor() {
@@ -15,49 +10,28 @@
             this.attachShadow({ mode: 'open' });
             this._config = {};
             this._built = false;
-            this._ready = false;
-            this._bootPromise = null;
-        }
-
-        connectedCallback() {
-            if (!this._bootPromise) this._bootPromise = this._boot();
+            this._data = {}; // for ha-form
         }
 
         set hass(hass) {
             this._hass = hass;
-            // Keep picker in sync once stamped
-            const p = this.shadowRoot?.getElementById('entity');
-            if (p && 'hass' in p) p.hass = hass;
+            // keep ha-form + picker synced when hass arrives later
+            const form = this.shadowRoot?.getElementById('entity-form');
+            if (form) form.hass = hass;
         }
 
         setConfig(config) {
             this._config = JSON.parse(JSON.stringify(config || {}));
-            // render only after the HA controls are defined
-            if (this._ready) this._render();
-            else if (this._bootPromise) this._bootPromise.then(() => this._render());
-        }
-
-        get value() {
-            return this._config;
-        }
-
-        /* ---------- Boot: wait for HA editor controls to be registered ---------- */
-        async _waitFor(tag) {
-            if (customElements.get(tag)) return;
-            try { await window.loadCardHelpers?.(); } catch (_) { }
-            await customElements.whenDefined(tag);
-        }
-        async _boot() {
-            // Wait for the HA components we rely on (no direct imports)
-            await this._waitFor('ha-entity-picker');
-            await this._waitFor('ha-textfield');
-            await this._waitFor('ha-select');
-            // ha-select pulls in mwc-list-item internally
-            this._ready = true;
+            // keep ha-form data in sync
+            this._data = {
+                entity: this._config.entity || '',
+            };
             this._render();
         }
 
-        /* ---------- UI Builders (commit on blur/change only) ---------- */
+        get value() { return this._config; }
+
+        /* ---------- UI helpers (commit on blur/change only) ---------- */
         _mkTextfield(label, value, onCommit) {
             const tf = document.createElement('ha-textfield');
             tf.label = label;
@@ -84,20 +58,21 @@
         }
 
         _mkTypeSelect(col, idx, container) {
-            const cols = this._config.columns;
+            const cols = this._config.columns || [];
             const TYPES = ['', 'image', 'icon'];
+
+            // label wrapper to avoid floating-label overlap
             const wrap = document.createElement('div');
             wrap.className = 'lc-field';
-
-            const label = document.createElement('div');
-            label.className = 'lc-label';
-            label.textContent = 'type (optional)';
+            const lbl = document.createElement('div');
+            lbl.className = 'lc-label';
+            lbl.textContent = 'type (optional)';
 
             const sel = document.createElement('ha-select');
             sel.classList.add('lc-type');
             sel.value = col.type || '';
 
-            // Populate menu items now that ha-select is defined
+            // populate items immediately; ha-select will upgrade and wire mwc-list-item internally
             TYPES.forEach((t) => {
                 const it = document.createElement('mwc-list-item');
                 it.value = t;
@@ -106,59 +81,53 @@
                 sel.append(it);
             });
 
-            const commitIfChanged = () => {
+            const commit = () => {
                 const v = sel.value || '';
                 const curr = cols[idx].type || '';
                 if (v === curr) return;
                 if (v) cols[idx].type = v; else delete cols[idx].type;
-                fireConfigChanged(this, this._config);
-                // Rebuild to show/hide image size fields
+                fireCfg(this, this._config);
                 const target = container?.isConnected ? container : this.shadowRoot?.getElementById('cols');
                 if (target) this._rebuildColumns(target);
             };
 
-            // Only commit on actual selection changes
-            sel.addEventListener('selected', () => setTimeout(commitIfChanged, 0));
-
-            wrap.append(label, sel);
+            sel.addEventListener('selected', () => setTimeout(commit, 0));
+            wrap.append(lbl, sel);
             return wrap;
         }
 
-        /* ---------- Render ---------- */
+        /* ---------- Render immediately (no blocking waits) ---------- */
         _render() {
             const root = this.shadowRoot;
             if (!this._built) {
                 root.innerHTML = `
           <style>
-            :host { display: block; }
-            .form { padding: 12px; display: grid; grid-template-columns: 1fr; gap: 18px; }
+            :host { display:block; }
+            .form { padding:12px; display:grid; grid-template-columns:1fr; gap:18px; }
             fieldset {
-              border: 1px solid var(--divider-color, #e0e0e0);
-              border-radius: 10px;
-              padding: 18px 16px;
-              margin: 0;
-              background: var(--card-background-color);
+              border:1px solid var(--divider-color,#e0e0e0);
+              border-radius:10px;
+              padding:18px 16px;
+              margin:0;
+              background:var(--card-background-color);
             }
-            fieldset > * + * { margin-top: 12px; }
-            legend { padding: 0 6px; font-weight: 600; color: var(--secondary-text-color); }
-            .row { display: grid; grid-template-columns: 1fr; gap: 12px; }
-            .cols { display: grid; grid-auto-rows: min-content; gap: 18px; }
-            .actions { display: flex; gap: 8px; padding-top: 4px; }
-            button { cursor: pointer; }
-            ha-textfield, ha-select, ha-entity-picker { width: 100%; }
-            .lc-field { display: flex; flex-direction: column; gap: 6px; }
+            fieldset > * + * { margin-top:12px; }
+            legend { padding:0 6px; font-weight:600; color:var(--secondary-text-color); }
+            .row { display:grid; grid-template-columns:1fr; gap:12px; }
+            .cols { display:grid; grid-auto-rows:min-content; gap:18px; }
+            .actions { display:flex; gap:8px; padding-top:4px; }
+            button { cursor:pointer; }
+            ha-textfield, ha-select, ha-entity-picker, ha-form { width:100%; }
+            .lc-field { display:flex; flex-direction:column; gap:6px; }
             .lc-label {
               font-size: var(--paper-font-body1_-_font-size, 0.875rem);
               color: var(--secondary-text-color);
-              font-weight: 600;
-              line-height: 1.2;
+              font-weight:600;
+              line-height:1.2;
             }
-            /* Roomier menu rows */
-            ha-select.lc-type {
-              --mdc-list-vertical-padding: 8px;
-              --mdc-menu-item-height: 40px;
-            }
+            ha-select.lc-type { --mdc-list-vertical-padding:8px; --mdc-menu-item-height:40px; }
           </style>
+
           <div class="form">
             <div class="row" id="row-entity"></div>
             <div class="row" id="row-title"></div>
@@ -173,66 +142,85 @@
           </div>
         `;
 
-                // Entity row (native HA picker)
-                const rowEntity = root.getElementById('row-entity');
-                const picker = document.createElement('ha-entity-picker');
-                picker.id = 'entity';
-                picker.label = 'Entity';
-                picker.allowCustomEntity = true;
-                if (this._hass) { try { picker.hass = this._hass; } catch (_) { } }
-                picker.value = this._config.entity || '';
-                picker.addEventListener('value-changed', (e) => {
-                    const next = e.detail?.value || '';
+                // --- Entity row: use ha-form with selector so HA loads picker internally
+                const entityRow = root.getElementById('row-entity');
+                const form = document.createElement('ha-form');
+                form.id = 'entity-form';
+                form.schema = [{ name: 'entity', selector: { entity: {} } }];
+                form.data = { entity: this._config.entity || '' };
+                if (this._hass) form.hass = this._hass;
+
+                // commit only on real changes
+                form.addEventListener('value-changed', (e) => {
+                    const next = e.detail?.value?.entity || '';
                     if ((this._config.entity || '') === next) return;
                     this._config.entity = next;
-                    fireConfigChanged(this, this._config);
+                    // keep local form.data in sync to avoid flicker
+                    form.data = { entity: next };
+                    fireCfg(this, this._config);
                 });
-                rowEntity.append(picker);
+                entityRow.append(form);
 
-                // Title, feed, limit rows
-                const rowTitle = root.getElementById('row-title');
-                rowTitle.append(this._mkTextfield('Title (text or HTML)', this._config.title || '', (val) => {
+                // --- Other rows
+                const titleRow = root.getElementById('row-title');
+                titleRow.append(this._mkTextfield('Title (text or HTML)', this._config.title || '', (val) => {
                     const curr = this._config.title || '';
                     const next = val || '';
                     if (curr === next) return;
                     if (next) this._config.title = next; else delete this._config.title;
-                    fireConfigChanged(this, this._config);
+                    fireCfg(this, this._config);
                 }));
 
-                const rowFeed = root.getElementById('row-feed');
-                rowFeed.append(this._mkTextfield('feed_attribute (optional)', this._config.feed_attribute || '', (val) => {
+                const feedRow = root.getElementById('row-feed');
+                feedRow.append(this._mkTextfield('feed_attribute (optional)', this._config.feed_attribute || '', (val) => {
                     const curr = this._config.feed_attribute || '';
-                    const next = val.trim();
+                    const next = (val || '').trim();
                     if (curr === next) return;
                     if (next) this._config.feed_attribute = next; else delete this._config.feed_attribute;
-                    fireConfigChanged(this, this._config);
+                    fireCfg(this, this._config);
                 }));
 
-                const rowLimit = root.getElementById('row-limit');
-                rowLimit.append(this._mkNumberfield('row_limit (optional)', (this._config.row_limit != null ? this._config.row_limit : ''), (num) => {
+                const limitRow = root.getElementById('row-limit');
+                limitRow.append(this._mkNumberfield('row_limit (optional)', (this._config.row_limit != null ? this._config.row_limit : ''), (num) => {
                     const curr = this._config.row_limit;
                     if ((curr == null && num == null) || curr === num) return;
                     if (num == null) delete this._config.row_limit; else this._config.row_limit = num;
-                    fireConfigChanged(this, this._config);
+                    fireCfg(this, this._config);
                 }));
 
-                // Columns editor
+                // Columns block
                 root.getElementById('add').addEventListener('click', () => {
                     if (!Array.isArray(this._config.columns)) this._config.columns = [];
                     this._config.columns.push({ field: '', title: '' });
-                    fireConfigChanged(this, this._config);
+                    fireCfg(this, this._config);
                     this._rebuildColumns(root.getElementById('cols'));
                 });
 
                 this._rebuildColumns(root.getElementById('cols'));
                 this._built = true;
-            }
 
-            // Keep picker value synced if config changed externally
-            const picker = this.shadowRoot.getElementById('entity');
-            if (picker && picker.value !== (this._config.entity || '')) picker.value = this._config.entity || '';
-            // Rebuild columns (idempotent) to reflect latest config
-            this._rebuildColumns(this.shadowRoot.getElementById('cols'));
+                // After first paint, if ha-form wasn’t upgraded yet, it will upgrade later.
+                // Keep hass/data up to date on upgrade:
+                queueMicrotask(() => {
+                    const f = this.shadowRoot?.getElementById('entity-form');
+                    if (!f) return;
+                    // reapply values once upgraded
+                    try {
+                        if (this._hass) f.hass = this._hass;
+                        f.data = { entity: this._config.entity || '' };
+                    } catch (_) { }
+                });
+            } else {
+                // keep ha-form in sync on subsequent setConfig calls
+                const f = this.shadowRoot.getElementById('entity-form');
+                if (f) {
+                    try {
+                        if (this._hass) f.hass = this._hass;
+                        f.data = { entity: this._config.entity || '' };
+                    } catch (_) { }
+                }
+                this._rebuildColumns(this.shadowRoot.getElementById('cols'));
+            }
         }
 
         _rebuildColumns(container) {
@@ -255,7 +243,7 @@
                     const next = val || '';
                     if (curr === next) return;
                     cols[idx].field = next;
-                    fireConfigChanged(this, this._config);
+                    fireCfg(this, this._config);
                 }));
 
                 // title
@@ -266,7 +254,7 @@
                     const next = val || '';
                     if (curr === next) return;
                     cols[idx].title = next;
-                    fireConfigChanged(this, this._config);
+                    fireCfg(this, this._config);
                 }));
 
                 // type
@@ -282,10 +270,10 @@
                     const next = val || '';
                     if (curr === next) return;
                     if (next) cols[idx].add_link = next; else delete cols[idx].add_link;
-                    fireConfigChanged(this, this._config);
+                    fireCfg(this, this._config);
                 }));
 
-                // image width/height (only for type === 'image')
+                // image sizes (only for image type)
                 if ((col.type || '') === 'image') {
                     const rW = document.createElement('div');
                     rW.className = 'row';
@@ -293,7 +281,7 @@
                         const curr = cols[idx].width;
                         if ((curr == null && num == null) || curr === num) return;
                         if (num == null) delete cols[idx].width; else cols[idx].width = num;
-                        fireConfigChanged(this, this._config);
+                        fireCfg(this, this._config);
                     }));
 
                     const rH = document.createElement('div');
@@ -302,7 +290,7 @@
                         const curr = cols[idx].height;
                         if ((curr == null && num == null) || curr === num) return;
                         if (num == null) delete cols[idx].height; else cols[idx].height = num;
-                        fireConfigChanged(this, this._config);
+                        fireCfg(this, this._config);
                     }));
 
                     fs.append(rW, rH);
@@ -316,7 +304,7 @@
                     const next = (val || '').trim();
                     if (curr === next) return;
                     if (next) cols[idx].col_width = next; else delete cols[idx].col_width;
-                    fireConfigChanged(this, this._config);
+                    fireCfg(this, this._config);
                 }));
 
                 // actions
@@ -328,7 +316,7 @@
                 rm.addEventListener('click', () => {
                     const arr = this._config.columns || [];
                     arr.splice(idx, 1);
-                    fireConfigChanged(this, this._config);
+                    fireCfg(this, this._config);
                     this._rebuildColumns(container);
                 });
                 actions.append(rm);
