@@ -15,34 +15,43 @@
 
         set hass(hass) {
             this._hass = hass;
-            // keep ha-form + picker synced when hass arrives later
             const form = this.shadowRoot?.getElementById('entity-form');
             if (form) form.hass = hass;
         }
 
         setConfig(config) {
             this._config = JSON.parse(JSON.stringify(config || {}));
-            // keep ha-form data in sync
-            this._data = {
-                entity: this._config.entity || '',
-            };
+            this._data = { entity: this._config.entity || '' };
             this._render();
         }
 
         get value() { return this._config; }
 
-        /* ---------- UI helpers (commit on blur/change only) ---------- */
-        _mkTextfield(label, value, onCommit) {
+        /* ---------- small helpers ---------- */
+        _hint(text) {
+            const d = document.createElement('div');
+            d.className = 'hint';
+            d.textContent = text;
+            return d;
+        }
+
+        _mkTextfield(label, value, onCommit, hintText) {
+            const wrap = document.createElement('div');
+            wrap.className = 'field-wrap';
             const tf = document.createElement('ha-textfield');
             tf.label = label;
             tf.value = value || '';
             const commit = () => onCommit(tf.value || '');
             tf.addEventListener('blur', commit);
             tf.addEventListener('change', commit);
-            return tf;
+            wrap.append(tf);
+            if (hintText) wrap.append(this._hint(hintText));
+            return wrap;
         }
 
-        _mkNumberfield(label, value, onCommit) {
+        _mkNumberfield(label, value, onCommit, hintText) {
+            const wrap = document.createElement('div');
+            wrap.className = 'field-wrap';
             const tf = document.createElement('ha-textfield');
             tf.label = label;
             tf.type = 'number';
@@ -54,29 +63,32 @@
             };
             tf.addEventListener('blur', commit);
             tf.addEventListener('change', commit);
-            return tf;
+            wrap.append(tf);
+            if (hintText) wrap.append(this._hint(hintText));
+            return wrap;
         }
 
         _mkTypeSelect(col, idx, container) {
             const cols = this._config.columns || [];
             const TYPES = ['', 'image', 'icon'];
 
-            // label wrapper to avoid floating-label overlap
             const wrap = document.createElement('div');
             wrap.className = 'lc-field';
+
             const lbl = document.createElement('div');
             lbl.className = 'lc-label';
-            lbl.textContent = 'type (optional)';
+            lbl.textContent = 'Type';
+            wrap.append(lbl);
 
             const sel = document.createElement('ha-select');
             sel.classList.add('lc-type');
             sel.value = col.type || '';
 
-            // populate items immediately; ha-select will upgrade and wire mwc-list-item internally
+            // Roomy menu items; no external imports necessary
             TYPES.forEach((t) => {
                 const it = document.createElement('mwc-list-item');
                 it.value = t;
-                it.textContent = t === '' ? '(none)' : t;
+                it.textContent = t === '' ? 'None (text)' : t;
                 if (t === sel.value) it.selected = true;
                 sel.append(it);
             });
@@ -90,13 +102,13 @@
                 const target = container?.isConnected ? container : this.shadowRoot?.getElementById('cols');
                 if (target) this._rebuildColumns(target);
             };
-
             sel.addEventListener('selected', () => setTimeout(commit, 0));
-            wrap.append(lbl, sel);
+
+            wrap.append(sel, this._hint('Leave as “None” for text. Choose “image” or “icon” to render differently.'));
             return wrap;
         }
 
-        /* ---------- Render immediately (no blocking waits) ---------- */
+        /* ---------- render ---------- */
         _render() {
             const root = this.shadowRoot;
             if (!this._built) {
@@ -118,6 +130,14 @@
             .actions { display:flex; gap:8px; padding-top:4px; }
             button { cursor:pointer; }
             ha-textfield, ha-select, ha-entity-picker, ha-form { width:100%; }
+
+            /* Labels + helper text */
+            .field-wrap { display:flex; flex-direction:column; gap:6px; }
+            .hint {
+              color: var(--secondary-text-color);
+              font-size: 12px;
+              line-height: 1.3;
+            }
             .lc-field { display:flex; flex-direction:column; gap:6px; }
             .lc-label {
               font-size: var(--paper-font-body1_-_font-size, 0.875rem);
@@ -136,57 +156,83 @@
 
             <fieldset>
               <legend>Columns</legend>
+              <div class="hint">
+                Each column maps to a field in your list items. Titles and cell values may include HTML (e.g. links, <strong>&lt;strong&gt;</strong>, <em>&lt;em&gt;</em>, <code>&lt;hr&gt;</code>).
+              </div>
               <div class="actions"><button id="add">Add column</button></div>
               <div class="cols" id="cols"></div>
             </fieldset>
           </div>
         `;
 
-                // --- Entity row: use ha-form with selector so HA loads picker internally
+                // --- Entity (ha-form selector: lets HA lazy-load the native picker)
                 const entityRow = root.getElementById('row-entity');
                 const form = document.createElement('ha-form');
                 form.id = 'entity-form';
                 form.schema = [{ name: 'entity', selector: { entity: {} } }];
                 form.data = { entity: this._config.entity || '' };
+                form.computeLabel = (s) => (s.name === 'entity' ? 'Entity' : '');
+                form.computeHelper = (s) => (s.name === 'entity' ? 'Select the data source entity (e.g., sensor.xyz).' : '');
                 if (this._hass) form.hass = this._hass;
 
-                // commit only on real changes
                 form.addEventListener('value-changed', (e) => {
                     const next = e.detail?.value?.entity || '';
                     if ((this._config.entity || '') === next) return;
                     this._config.entity = next;
-                    // keep local form.data in sync to avoid flicker
-                    form.data = { entity: next };
+                    form.data = { entity: next }; // keep in sync
                     fireCfg(this, this._config);
                 });
                 entityRow.append(form);
 
-                // --- Other rows
+                // --- Title
                 const titleRow = root.getElementById('row-title');
-                titleRow.append(this._mkTextfield('Title (text or HTML)', this._config.title || '', (val) => {
-                    const curr = this._config.title || '';
-                    const next = val || '';
-                    if (curr === next) return;
-                    if (next) this._config.title = next; else delete this._config.title;
-                    fireCfg(this, this._config);
-                }));
+                titleRow.append(
+                    this._mkTextfield(
+                        'Title',
+                        this._config.title || '',
+                        (val) => {
+                            const curr = this._config.title || '';
+                            const next = val || '';
+                            if (curr === next) return;
+                            if (next) this._config.title = next; else delete this._config.title;
+                            fireCfg(this, this._config);
+                        },
+                        'Optional. HTML allowed (e.g., <a>, <strong>, <em>, <hr>).'
+                    )
+                );
 
+                // --- feed_attribute
                 const feedRow = root.getElementById('row-feed');
-                feedRow.append(this._mkTextfield('feed_attribute (optional)', this._config.feed_attribute || '', (val) => {
-                    const curr = this._config.feed_attribute || '';
-                    const next = (val || '').trim();
-                    if (curr === next) return;
-                    if (next) this._config.feed_attribute = next; else delete this._config.feed_attribute;
-                    fireCfg(this, this._config);
-                }));
+                feedRow.append(
+                    this._mkTextfield(
+                        'Feed attribute',
+                        this._config.feed_attribute || '',
+                        (val) => {
+                            const curr = this._config.feed_attribute || '';
+                            const next = (val || '').trim();
+                            if (curr === next) return;
+                            if (next) this._config.feed_attribute = next; else delete this._config.feed_attribute;
+                            fireCfg(this, this._config);
+                        },
+                        'Optional. Attribute that contains the list (defaults to attributes.feed or the entity attributes).'
+                    )
+                );
 
+                // --- row_limit
                 const limitRow = root.getElementById('row-limit');
-                limitRow.append(this._mkNumberfield('row_limit (optional)', (this._config.row_limit != null ? this._config.row_limit : ''), (num) => {
-                    const curr = this._config.row_limit;
-                    if ((curr == null && num == null) || curr === num) return;
-                    if (num == null) delete this._config.row_limit; else this._config.row_limit = num;
-                    fireCfg(this, this._config);
-                }));
+                limitRow.append(
+                    this._mkNumberfield(
+                        'Row limit',
+                        this._config.row_limit != null ? this._config.row_limit : '',
+                        (num) => {
+                            const curr = this._config.row_limit;
+                            if ((curr == null && num == null) || curr === num) return;
+                            if (num == null) delete this._config.row_limit; else this._config.row_limit = num;
+                            fireCfg(this, this._config);
+                        },
+                        'Optional. Maximum number of rows to display.'
+                    )
+                );
 
                 // Columns block
                 root.getElementById('add').addEventListener('click', () => {
@@ -199,19 +245,16 @@
                 this._rebuildColumns(root.getElementById('cols'));
                 this._built = true;
 
-                // After first paint, if ha-form wasn’t upgraded yet, it will upgrade later.
-                // Keep hass/data up to date on upgrade:
+                // Nudge picker once upgraded
                 queueMicrotask(() => {
                     const f = this.shadowRoot?.getElementById('entity-form');
                     if (!f) return;
-                    // reapply values once upgraded
                     try {
                         if (this._hass) f.hass = this._hass;
                         f.data = { entity: this._config.entity || '' };
                     } catch (_) { }
                 });
             } else {
-                // keep ha-form in sync on subsequent setConfig calls
                 const f = this.shadowRoot.getElementById('entity-form');
                 if (f) {
                     try {
@@ -238,24 +281,38 @@
                 // field
                 const rField = document.createElement('div');
                 rField.className = 'row';
-                rField.append(this._mkTextfield('field (attribute name)', col.field || '', (val) => {
-                    const curr = cols[idx].field || '';
-                    const next = val || '';
-                    if (curr === next) return;
-                    cols[idx].field = next;
-                    fireCfg(this, this._config);
-                }));
+                rField.append(
+                    this._mkTextfield(
+                        'Field',
+                        col.field || '',
+                        (val) => {
+                            const curr = cols[idx].field || '';
+                            const next = val || '';
+                            if (curr === next) return;
+                            cols[idx].field = next;
+                            fireCfg(this, this._config);
+                        },
+                        'Attribute key in each list item (e.g., "name", "url", "icon").'
+                    )
+                );
 
                 // title
                 const rTitle = document.createElement('div');
                 rTitle.className = 'row';
-                rTitle.append(this._mkTextfield('title (header text or HTML)', col.title || '', (val) => {
-                    const curr = cols[idx].title || '';
-                    const next = val || '';
-                    if (curr === next) return;
-                    cols[idx].title = next;
-                    fireCfg(this, this._config);
-                }));
+                rTitle.append(
+                    this._mkTextfield(
+                        'Header title',
+                        col.title || '',
+                        (val) => {
+                            const curr = cols[idx].title || '';
+                            const next = val || '';
+                            if (curr === next) return;
+                            cols[idx].title = next;
+                            fireCfg(this, this._config);
+                        },
+                        'Text shown in the table header for this column. HTML allowed.'
+                    )
+                );
 
                 // type
                 const rType = document.createElement('div');
@@ -265,33 +322,54 @@
                 // add_link
                 const rLink = document.createElement('div');
                 rLink.className = 'row';
-                rLink.append(this._mkTextfield('add_link (URL field, optional)', col.add_link || '', (val) => {
-                    const curr = cols[idx].add_link || '';
-                    const next = val || '';
-                    if (curr === next) return;
-                    if (next) cols[idx].add_link = next; else delete cols[idx].add_link;
-                    fireCfg(this, this._config);
-                }));
+                rLink.append(
+                    this._mkTextfield(
+                        'Link field',
+                        col.add_link || '',
+                        (val) => {
+                            const curr = cols[idx].add_link || '';
+                            const next = val || '';
+                            if (curr === next) return;
+                            if (next) cols[idx].add_link = next; else delete cols[idx].add_link;
+                            fireCfg(this, this._config);
+                        },
+                        'Optional. Name of a field in the item that contains a URL; wraps the cell in a link.'
+                    )
+                );
 
                 // image sizes (only for image type)
                 if ((col.type || '') === 'image') {
                     const rW = document.createElement('div');
                     rW.className = 'row';
-                    rW.append(this._mkNumberfield('image width (default 70)', (col.width != null ? col.width : ''), (num) => {
-                        const curr = cols[idx].width;
-                        if ((curr == null && num == null) || curr === num) return;
-                        if (num == null) delete cols[idx].width; else cols[idx].width = num;
-                        fireCfg(this, this._config);
-                    }));
+                    rW.append(
+                        this._mkNumberfield(
+                            'Image width (px)',
+                            col.width != null ? col.width : '',
+                            (num) => {
+                                const curr = cols[idx].width;
+                                if ((curr == null && num == null) || curr === num) return;
+                                if (num == null) delete cols[idx].width; else cols[idx].width = num;
+                                fireCfg(this, this._config);
+                            },
+                            'Default 70.'
+                        )
+                    );
 
                     const rH = document.createElement('div');
                     rH.className = 'row';
-                    rH.append(this._mkNumberfield('image height (default 90)', (col.height != null ? col.height : ''), (num) => {
-                        const curr = cols[idx].height;
-                        if ((curr == null && num == null) || curr === num) return;
-                        if (num == null) delete cols[idx].height; else cols[idx].height = num;
-                        fireCfg(this, this._config);
-                    }));
+                    rH.append(
+                        this._mkNumberfield(
+                            'Image height (px)',
+                            col.height != null ? col.height : '',
+                            (num) => {
+                                const curr = cols[idx].height;
+                                if ((curr == null && num == null) || curr === num) return;
+                                if (num == null) delete cols[idx].height; else cols[idx].height = num;
+                                fireCfg(this, this._config);
+                            },
+                            'Default 90.'
+                        )
+                    );
 
                     fs.append(rW, rH);
                 }
@@ -299,13 +377,20 @@
                 // col_width
                 const rColWidth = document.createElement('div');
                 rColWidth.className = 'row';
-                rColWidth.append(this._mkTextfield('col_width (e.g., 120px or 25%)', col.col_width || '', (val) => {
-                    const curr = (cols[idx].col_width || '').trim();
-                    const next = (val || '').trim();
-                    if (curr === next) return;
-                    if (next) cols[idx].col_width = next; else delete cols[idx].col_width;
-                    fireCfg(this, this._config);
-                }));
+                rColWidth.append(
+                    this._mkTextfield(
+                        'Column width',
+                        col.col_width || '',
+                        (val) => {
+                            const curr = (cols[idx].col_width || '').trim();
+                            const next = (val || '').trim();
+                            if (curr === next) return;
+                            if (next) cols[idx].col_width = next; else delete cols[idx].col_width;
+                            fireCfg(this, this._config);
+                        },
+                        'Any valid CSS width (e.g., 120px, 25%, 10rem).'
+                    )
+                );
 
                 // actions
                 const actions = document.createElement('div');

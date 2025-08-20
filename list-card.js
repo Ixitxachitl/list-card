@@ -1,4 +1,4 @@
-console.log(`%clist-card\n%cVersion: ${'0.4.6'}`, 'color: rebeccapurple; font-weight: bold;', '');
+console.log(`%clist-card\n%cVersion: ${'0.4.7'}`, 'color: rebeccapurple; font-weight: bold;', '');
 
 /* =========================
    List Card (runtime)
@@ -158,7 +158,7 @@ window.customCards.push({
 
 ListCard.getConfigElement = async function () {
   const url = new URL('./list-card-editor.js', import.meta.url);
-  url.searchParams.set('v', '3');
+  url.searchParams.set('v', '4');
   await import(url.href);
   return document.createElement('list-card-editor');
 };
