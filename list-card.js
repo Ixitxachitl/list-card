@@ -1,4 +1,4 @@
-console.log(`%clist-card\n%cVersion: ${'0.4.4'}`, 'color: rebeccapurple; font-weight: bold;', '');
+console.log(`%clist-card\n%cVersion: ${'0.4.5'}`, 'color: rebeccapurple; font-weight: bold;', '');
 
 /* =========================
    List Card (runtime)
@@ -156,17 +156,9 @@ window.customCards.push({
   description: 'Generate a table from a sensor that provides a list of attributes.',
 });
 
-window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "list-card",
-  name: "List Card",
-  preview: false,
-  description: "Generate a table from a sensor that provides a list of attributes.",
-});
-
 ListCard.getConfigElement = async function () {
   const url = new URL('./list-card-editor.js', import.meta.url);
-  url.searchParams.set('v', '1');
+  url.searchParams.set('v', '2');
   await import(url.href);
   return document.createElement('list-card-editor');
 };
