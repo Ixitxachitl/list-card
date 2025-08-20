@@ -165,7 +165,8 @@ window.customCards.push({
 });
 
 ListCard.getConfigElement = async function () {
-  const url = new URL('./list-card-editor.js', import.meta.url); // ← robust relative path
+  const url = new URL('./list-card-editor.js', import.meta.url);
+  url.searchParams.set('v', '1');
   await import(url.href);
   return document.createElement('list-card-editor');
 };
