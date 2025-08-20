@@ -1,4 +1,4 @@
-console.log(`%clist-card\n%cVersion: ${'0.4.2'}`, 'color: rebeccapurple; font-weight: bold;', '');
+console.log(`%clist-card\n%cVersion: ${'0.4.3'}`, 'color: rebeccapurple; font-weight: bold;', '');
 
 /* =========================
    List Card (runtime)
