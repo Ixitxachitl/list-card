@@ -1,4 +1,4 @@
-console.log(`%clist-card\n%cVersion: ${'0.4.3'}`, 'color: rebeccapurple; font-weight: bold;', '');
+console.log(`%clist-card\n%cVersion: ${'0.4.4'}`, 'color: rebeccapurple; font-weight: bold;', '');
 
 /* =========================
    List Card (runtime)
@@ -164,10 +164,10 @@ window.customCards.push({
   description: "Generate a table from a sensor that provides a list of attributes.",
 });
 
-// ✅ EXACTLY like core cards: lazy-load the editor module first
 ListCard.getConfigElement = async function () {
-  await import(/* webpackChunkName: "list-card-editor" */ "./list-card-editor.js");
-  return document.createElement("list-card-editor");
+  const url = new URL('./list-card-editor.js', import.meta.url); // ← robust relative path
+  await import(url.href);
+  return document.createElement('list-card-editor');
 };
 
 // (optional, but mirrors core cards’ signature)
