@@ -84,7 +84,12 @@
             sel.classList.add('lc-type');
             sel.value = col.type || '';
 
-            // Roomy menu items; no external imports necessary
+            // ⬇️ Prevent the parent editor dialog from closing when the menu closes
+            const swallow = (e) => { e.stopPropagation(); e.stopImmediatePropagation?.(); };
+            sel.addEventListener('opened', swallow);
+            sel.addEventListener('closed', swallow);
+
+            // Populate items
             TYPES.forEach((t) => {
                 const it = document.createElement('mwc-list-item');
                 it.value = t;
@@ -93,18 +98,21 @@
                 sel.append(it);
             });
 
+            // Commit only when an actual selection occurs
             const commit = () => {
                 const v = sel.value || '';
                 const curr = cols[idx].type || '';
                 if (v === curr) return;
                 if (v) cols[idx].type = v; else delete cols[idx].type;
-                fireCfg(this, this._config);
+                this.dispatchEvent(new CustomEvent('config-changed', {
+                    detail: { config: this._config }, bubbles: true, composed: true
+                }));
                 const target = container?.isConnected ? container : this.shadowRoot?.getElementById('cols');
                 if (target) this._rebuildColumns(target);
             };
             sel.addEventListener('selected', () => setTimeout(commit, 0));
 
-            wrap.append(sel, this._hint('Leave as “None” for text. Choose “image” or “icon” to render differently.'));
+            wrap.append(sel, this._hint('Leave as “None” for text. Choose “image” or “icon”.'));
             return wrap;
         }
 
