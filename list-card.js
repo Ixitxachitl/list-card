@@ -4,7 +4,7 @@ console.log(`%clist-card\n%cVersion: ${'0.4.8'}`, 'color: rebeccapurple; font-we
    List Card (runtime)
    ========================= */
 class ListCard extends HTMLElement {
-  constructor() { super(); this.attachShadow({ mode: 'open' }); this._config = {}; }
+  constructor() { super(); this.attachShadow({ mode: 'open' }); this._config = {}; this._lastHtml = ''; }
 
   setConfig(config) {
     if (!config || !config.entity) throw new Error('Please define an entity');
@@ -173,7 +173,10 @@ class ListCard extends HTMLElement {
     }
 
     html += '</tbody></table>';
-    content.innerHTML = html;
+    if (html !== this._lastHtml) {
+      this._lastHtml = html;
+      content.innerHTML = html;
+    }
   }
 
   getCardSize() { return 1; }
