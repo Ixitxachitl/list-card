@@ -4,7 +4,7 @@ console.log(`%clist-card\n%cVersion: ${'0.4.8'}`, 'color: rebeccapurple; font-we
    List Card (runtime)
    ========================= */
 class ListCard extends HTMLElement {
-  constructor() { super(); this.attachShadow({ mode: 'open' }); this._config = {}; this._lastHtml = ''; }
+  constructor() { super(); this.attachShadow({ mode: 'open' }); this._config = {}; this._lastDataKey = ''; }
 
   setConfig(config) {
     if (!config || !config.entity) throw new Error('Please define an entity');
@@ -95,6 +95,13 @@ class ListCard extends HTMLElement {
     const rows = Array.isArray(feed) ? feed : [];
     if (!rows.length) { this.style.display = 'none'; return; }
 
+    // Skip re-render if the feed data hasn't actually changed —
+    // HA fires set hass on EVERY state change across the instance,
+    // and rebuilding the DOM destroys the user's active text selection.
+    const dataKey = JSON.stringify(rows);
+    if (dataKey === this._lastDataKey) return;
+    this._lastDataKey = dataKey;
+
     this.style.display = 'block';
     const cols = Array.isArray(c.columns) && c.columns.length ? c.columns : null;
     const rowLimit = Number.isFinite(c.row_limit) && c.row_limit > 0 ? c.row_limit : rows.length;
@@ -173,10 +180,7 @@ class ListCard extends HTMLElement {
     }
 
     html += '</tbody></table>';
-    if (html !== this._lastHtml) {
-      this._lastHtml = html;
-      content.innerHTML = html;
-    }
+    content.innerHTML = html;
   }
 
   getCardSize() { return 1; }
