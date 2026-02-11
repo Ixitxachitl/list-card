@@ -30,26 +30,44 @@ class ListCard extends HTMLElement {
     content.id = 'container';
     content.classList.add('selectable');
 
-    // Make text selection behave inside dashboards
+    // Stop ALL pointer / mouse / touch events from propagating so HA's
+    // gesture handlers never interfere with native text selection & copy.
     const stop = (e) => e.stopPropagation();
-    content.addEventListener('mousedown', stop);
-    content.addEventListener('mouseup', stop);
-    content.addEventListener('touchstart', stop, { passive: true });
-    content.addEventListener('touchmove', stop, { passive: true });
-    content.addEventListener('touchend', stop, { passive: true });
+    for (const ev of ['mousedown', 'mouseup', 'pointerdown', 'pointerup',
+      'pointermove', 'click', 'selectstart', 'copy'])
+      content.addEventListener(ev, stop);
+    for (const ev of ['touchstart', 'touchmove', 'touchend'])
+      content.addEventListener(ev, stop, { passive: true });
 
     const style = document.createElement('style');
     style.textContent = `
-      :host { user-select: text !important; -webkit-user-select: text !important; -webkit-touch-callout: default; touch-action: auto; }
-      .selectable, .selectable * { user-select: text !important; -webkit-user-select: text !important; }
+      :host {
+        user-select: text !important;
+        -webkit-user-select: text !important;
+        -webkit-touch-callout: default !important;
+        touch-action: auto;
+      }
+      ha-card { overflow: visible; }
+      #container,
+      .selectable, .selectable * {
+        user-select: text !important;
+        -webkit-user-select: text !important;
+        -webkit-touch-callout: default !important;
+        cursor: text;
+      }
       a, img { -webkit-user-drag: none; user-drag: none; }
       .title-html { padding: 16px 16px 0 16px; }
-      table { width: 100%; padding: 0 16px 16px 16px; }  /* original spacing */
+      table { width: 100%; padding: 0 16px 16px 16px; }
       thead th { text-align: left; }
-      tbody tr:nth-child(odd)  { background-color: var(--paper-card-background-color); }
+      tbody tr:nth-child(odd)  { background-color: var(--card-background-color, var(--paper-card-background-color)); }
       tbody tr:nth-child(even) { background-color: var(--secondary-background-color); }
-      td, th { cursor: text; }
+      td, th {
+        cursor: text;
+        user-select: text !important;
+        -webkit-user-select: text !important;
+      }
       td a { color: var(--primary-text-color); text-decoration: none; font-weight: normal; cursor: pointer; }
+      ::selection { background: var(--primary-color); color: var(--text-primary-color, #fff); }
     `;
 
     card.append(content, style);
@@ -59,44 +77,58 @@ class ListCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    try { this._renderTable(); } catch (e) { console.warn('list-card: render error', e); }
+  }
+
+  _renderTable() {
     const c = this._config;
-    if (!c || !c.entity || !hass?.states?.[c.entity]) { this.style.display = 'none'; return; }
+    if (!c || !c.entity || !this._hass?.states?.[c.entity]) { this.style.display = 'none'; return; }
 
-    const content = this.shadowRoot.getElementById('container');
-    const st = hass.states[c.entity];
+    const content = this.shadowRoot?.getElementById('container');
+    if (!content) return; // shadow DOM not ready yet
 
-    const feed = c.feed_attribute ? st.attributes?.[c.feed_attribute] : st.attributes?.['feed'] ?? st.attributes;
+    const st = this._hass.states[c.entity];
+    if (!st) { this.style.display = 'none'; return; }
+
+    const attrs = st.attributes || {};
+    const feed = c.feed_attribute ? attrs[c.feed_attribute] : (attrs.feed ?? attrs);
     const rows = Array.isArray(feed) ? feed : [];
     if (!rows.length) { this.style.display = 'none'; return; }
 
     this.style.display = 'block';
-    const cols = Array.isArray(c.columns) ? c.columns : null;
-    const rowLimit = Number.isFinite(c.row_limit) ? c.row_limit : rows.length;
+    const cols = Array.isArray(c.columns) && c.columns.length ? c.columns : null;
+    const rowLimit = Number.isFinite(c.row_limit) && c.row_limit > 0 ? c.row_limit : rows.length;
 
     let html = '<table>';
 
+    /* ── colgroup ── */
     if (cols) {
       html += '<colgroup>';
       for (const col of cols) {
-        const w = (col?.col_width ?? '').toString().trim();
+        if (!col) { html += '<col>'; continue; }
+        const w = (col.col_width ?? '').toString().trim();
         html += w ? `<col style="width:${w}">` : '<col>';
       }
       html += '</colgroup>';
     }
 
+    /* ── thead ── */
     html += '<thead><tr>';
     if (!cols) {
-      const keys = Object.keys(rows[0] || {});
+      const first = rows[0];
+      const keys = (first && typeof first === 'object') ? Object.keys(first) : [];
       for (const k of keys) html += `<th>${k}</th>`;
     } else {
       for (const col of cols) {
-        const t = (col?.title ?? col?.field ?? '').toString();
-        const cls = (col?.field ?? '').toString().trim().replace(/[^\w-]/g, '_');
-        html += `<th class="col-${cls}" data-field="${col.field ?? ''}">${t}</th>`; // HTML allowed
+        if (!col) { html += '<th></th>'; continue; }
+        const t = (col.title ?? col.field ?? '').toString();
+        const cls = (col.field ?? '').toString().trim().replace(/[^\w-]/g, '_');
+        html += `<th class="col-${cls}" data-field="${col.field ?? ''}">${t}</th>`;
       }
     }
     html += '</tr></thead><tbody>';
 
+    /* ── rows ── */
     let r = 0;
     for (const entry of rows) {
       if (r >= rowLimit) break;
@@ -105,29 +137,31 @@ class ListCard extends HTMLElement {
       html += '<tr>';
 
       if (!cols) {
-        for (const k of Object.keys(entry)) html += `<td>${this._raw(entry[k])}</td>`; // HTML allowed
+        for (const k of Object.keys(entry)) html += `<td>${this._raw(entry[k])}</td>`;
       } else {
-        if (!cols.every(cn => Object.prototype.hasOwnProperty.call(entry, cn.field))) continue;
-
         for (const col of cols) {
-          const f = col.field;
-          const cls = String(f || '').trim().replace(/[^\w-]/g, '_');
-          const href = col.add_link ? (entry[col.add_link] ?? '') : '';
+          if (!col) { html += '<td></td>'; continue; }
+          const f = col.field || '';
+          const cls = f.replace(/[^\w-]/g, '_');
+          const val = f ? entry[f] : undefined;
+          const href = col.add_link ? String(entry[col.add_link] ?? '') : '';
           const open = href ? `<a href="${href}" draggable="false" target="_blank" rel="noopener noreferrer">` : '';
           const close = href ? '</a>' : '';
 
-          html += `<td class="col-${cls} ${f || ''}" data-field="${f || ''}">`;
+          html += `<td class="col-${cls}" data-field="${f}">`;
 
           if (col.type === 'image') {
-            const w = Number.isFinite(col.width) ? col.width : 70;
-            const h = Number.isFinite(col.height) ? col.height : 90;
-            const val = entry[f];
             const url = (Array.isArray(val) && val[0]?.url) ? val[0].url : val;
-            html += `${open}<img src="${url}" draggable="false" width="${w}" height="${h}" />${close}`;
+            if (url) {
+              const w = Number.isFinite(col.width) ? col.width : 70;
+              const h = Number.isFinite(col.height) ? col.height : 90;
+              html += `${open}<img src="${url}" draggable="false" width="${w}" height="${h}" />${close}`;
+            }
           } else if (col.type === 'icon') {
-            html += `<ha-icon class="column-${f || ''}" icon="${entry[f]}"></ha-icon>`;
+            const icon = val ? String(val) : '';
+            if (icon) html += `<ha-icon class="column-${cls}" icon="${icon}"></ha-icon>`;
           } else {
-            html += `${open}${this._raw(entry[f])}${close}`; // HTML allowed
+            html += `${open}${this._raw(val)}${close}`;
           }
 
           html += '</td>';
@@ -158,7 +192,7 @@ window.customCards.push({
 
 ListCard.getConfigElement = async function () {
   const url = new URL('./list-card-editor.js', import.meta.url);
-  url.searchParams.set('v', '5');
+  url.searchParams.set('v', '6');
   await import(url.href);
   return document.createElement('list-card-editor');
 };
